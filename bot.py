@@ -3,6 +3,7 @@ import os
 import json
 import time
 import io
+import functools 
 from dotenv import load_dotenv
 from discord.ext import commands
 from discord import app_commands
@@ -27,6 +28,26 @@ def save_event_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 # ---------------------------
+
+# --- SYSTÈME DE PERMISSION  ---
+def admin_only(func):
+    """
+    Décorateur qui vérifie si l'utilisateur est administrateur.
+    Si non, envoie le GIF d'erreur et stoppe la commande.
+    """
+    @functools.wraps(func)
+    async def wrapper(interaction: discord.Interaction, *args, **kwargs):
+        if not interaction.user.guild_permissions.administrator:
+            embed_error = discord.Embed(description="Hop hop hop ! Tu n'as pas les perms !", color=discord.Color.red())
+            embed_error.set_image(url="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExOGwyYmZlZmFweGg2bWh4Z2x5eDlzNHZ6eW14Z2x5eDlzNCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/8abAbOrQ9rvLG/giphy.gif")
+            # On répond en ephemeral pour ne pas spammer le chat
+            await interaction.response.send_message(embed=embed_error, ephemeral=True)
+            return # On arrête l'exécution ici
+        
+        # Si c'est bon, on exécute la vraie commande
+        return await func(interaction, *args, **kwargs)
+    return wrapper
+# --------------------------------------
 
 @bot.event
 async def on_ready():
@@ -87,35 +108,6 @@ async def link_dmfi(interaction: discord.Interaction):
 async def link_brm(interaction: discord.Interaction):
     await interaction.response.send_message("Voici le lien vers le jeu brm5 : https://www.roblox.com/fr/games/2916899287/Blackhawk-Rescue-Mission-5")
 
-# Pouvoir ban un membre precis
-@bot.tree.command(name="ban", description="bannir un membre du serveur")
-async def Ban(interaction: discord.Interaction, membre: discord.Member):
-    if interaction.user.guild_permissions.ban_members:
-        await interaction.response.send_message("Ban envoyé !")
-        try:
-            await membre.send("Tu as été banni.")
-        except:
-            pass
-        await membre.ban()
-    else:
-        embed = discord.Embed(description="Hop hop hop tu n'as pas les perms !", color=discord.Color.red())
-        embed.set_image(url="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExOGwyYmZlZmFweGg2bWh4Z2x5eDlzNHZ6eW14Z2x5eDlzNCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/8abAbOrQ9rvLG/giphy.gif")       
-        await interaction.response.send_message(embed=embed)
-
-
-# Pouvoir kick un membre precis
-@bot.tree.command(name="kick", description="exclusion d'un membre du serveur")
-async def kick(interaction: discord.Interaction, membre: discord.Member):
-    if interaction.user.guild_permissions.kick_members:
-        await interaction.response.send_message("exclusion envoyer !")
-        await membre.send("tu a été expulsé")
-        await membre.kick()
-    else:
-        embed = discord.Embed(description="Hop hop hop tu n'as pas les perms !", color=discord.Color.red())
-        embed.set_image(url="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExOGwyYmZlZmFweGg2bWh4Z2x5eDlzNHZ6eW14Z2x5eDlzNCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/8abAbOrQ9rvLG/giphy.gif")
-        await interaction.response.send_message(embed=embed)
-
-
 
 @bot.tree.command(name="annonce", description="Faire une annonce structurée (Titre + 3 Paragraphes max)")
 @discord.app_commands.describe(
@@ -127,13 +119,10 @@ async def kick(interaction: discord.Interaction, membre: discord.Member):
     image_url="Lien de l'image (Optionnel)",
     mention="Mention de joueur"
 )
+@admin_only # <-- Vérification Admin ici
 async def annonce(interaction: discord.Interaction, titre: str, sous_titre: str, paragraphe_1: str, paragraphe_2: str = None, paragraphe_3: str = None, image_url: str = None, mention: discord.Member = None):
     
-    if not interaction.user.guild_permissions.administrator:
-        embed_error = discord.Embed(description="Hop hop hop ! Tu n'as pas les perms !", color=discord.Color.red())
-        embed_error.set_image(url="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExOGwyYmZlZmFweGg2bWh4Z2x5eDlzNHZ6eW14Z2x5eDlzNCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/8abAbOrQ9rvLG/giphy.gif")
-        await interaction.response.send_message(embed=embed_error, ephemeral=True)
-        return
+    # NOTE: Plus besoin de vérifier les permissions ici, le @admin_only le fait au dessus !
 
     CHANNEL_ID = 1468615012263264389
     target_channel = interaction.guild.get_channel(CHANNEL_ID)
@@ -147,7 +136,7 @@ async def annonce(interaction: discord.Interaction, titre: str, sous_titre: str,
     contenu_final += f"{paragraphe_1}\n\n"
     if paragraphe_2: contenu_final += f"{paragraphe_2}\n\n"
     if paragraphe_3: contenu_final += f"{paragraphe_3}\n\n"
-    if mention: contenu_final += f"{mention.mention}\n\n" # J'ai aussi ajouté .mention ici pour que ça ping correctement
+    if mention: contenu_final += f"{mention.mention}\n\n"
     contenu_final += f"_______\n*Transmis par l'État Major de la DMFI*"
     if image_url: contenu_final += f"\n{image_url}"
 
@@ -166,17 +155,11 @@ async def annonce(interaction: discord.Interaction, titre: str, sous_titre: str,
         await interaction.response.send_message(f"❌ Erreur 06 : Erreur inconnue : {e}", ephemeral=True)
 
 
-
-
 @bot.tree.command(name="fmi", description="Met à jour les rôles des membres qui ont passé leur FMI")
+@admin_only # <-- Vérification Admin ici
 async def fmi(interaction: discord.Interaction, membre1: discord.Member, membre2: discord.Member = None, membre3: discord.Member = None, membre4: discord.Member = None, membre5: discord.Member = None):
+    # La vérification admin a déjà eu lieu, on peut defer direct
     await interaction.response.defer(ephemeral=True)
-
-    if not interaction.user.guild_permissions.administrator:
-        embed_error = discord.Embed(description="Hop hop hop ! Tu n'as pas les perms !", color=discord.Color.red())
-        embed_error.set_image(url="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExOGwyYmZlZmFweGg2bWh4Z2x5eDlzNHZ6eW14Z2x5eDlzNCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/8abAbOrQ9rvLG/giphy.gif")
-        await interaction.followup.send(embed=embed_error, ephemeral=True)
-        return
     
     role_soldat_banniere = interaction.guild.get_role(1401585449587314781)
     role_soldat = interaction.guild.get_role(1230207566794195055)
@@ -198,14 +181,9 @@ async def fmi(interaction: discord.Interaction, membre1: discord.Member, membre2
 
 
 @bot.tree.command(name="id", description="Met le rôle ID Valide pour les personnes en question")
+@admin_only # <-- Vérification Admin ici
 async def id(interaction: discord.Interaction, membre1: discord.Member, membre2: discord.Member = None, membre3: discord.Member = None):
     await interaction.response.defer(ephemeral=True)
-
-    if not interaction.user.guild_permissions.administrator:
-        embed_error = discord.Embed(description="Hop hop hop ! Tu n'as pas les perms !", color=discord.Color.red())
-        embed_error.set_image(url="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExOGwyYmZlZmFweGg2bWh4Z2x5eDlzNHZ6eW14Z2x5eDlzNCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/8abAbOrQ9rvLG/giphy.gif")
-        await interaction.followup.send(embed=embed_error, ephemeral=True)
-        return
     
     role_to_add = interaction.guild.get_role(1468549988052107391)
     if role_to_add is None:
@@ -229,15 +207,9 @@ async def id(interaction: discord.Interaction, membre1: discord.Member, membre2:
 # ==========================================
 
 @bot.tree.command(name="startevent", description="Démarre l'enregistrement des personnes qui rejoignent le vocal")
+@admin_only # <-- Vérification Admin ici
 async def startevent(interaction: discord.Interaction, channel: discord.VoiceChannel):
     await interaction.response.defer(ephemeral=True)
-    
-    # Vérification permissions
-    if not interaction.user.guild_permissions.administrator:
-        embed_error = discord.Embed(description="Hop hop hop ! Tu n'as pas les perms !", color=discord.Color.red())
-        embed_error.set_image(url="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExOGwyYmZlZmFweGg2bWh4Z2x5eDlzNHZ6eW14Z2x5eDlzNCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/8abAbOrQ9rvLG/giphy.gif")
-        await interaction.followup.send(embed=embed_error, ephemeral=True)
-        return
 
     # Vérifier si un event est déjà en cours
     current_data = load_event_data()
@@ -266,14 +238,9 @@ async def startevent(interaction: discord.Interaction, channel: discord.VoiceCha
 
 
 @bot.tree.command(name="stopevent", description="Arrête l'enregistrement et envoie le rapport")
+@admin_only # <-- Vérification Admin ici
 async def stopevent(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
-
-    if not interaction.user.guild_permissions.administrator:
-        embed_error = discord.Embed(description="Hop hop hop ! Tu n'as pas les perms !", color=discord.Color.red())
-        embed_error.set_image(url="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExOGwyYmZlZmFweGg2bWh4Z2x5eDlzNHZ6eW14Z2x5eDlzNCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/8abAbOrQ9rvLG/giphy.gif")
-        await interaction.followup.send(embed=embed_error, ephemeral=True)
-        return
 
     data = load_event_data()
     
