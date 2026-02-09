@@ -67,7 +67,7 @@ async def on_message(message: discord.Message):
         else:
             await message.channel.send("salut a toi, Soldat !")
     
-    if message.content.lower() == 'leaderdmfi' and message.author.id == id_megaliht:
+    if message.content.lower() == 'def.chefdmfi' and message.author.id == id_megaliht:
         await message.channel.send('Le leader de la DMFI est le Général NOXYSE, un homme d\'stupidité et de méchanceté sans pareil, il est le chef de la DMFI et le plus grand dictateur que le monde ait jamais connu, il est aussi le plus grand connard de l\'univers, il est tellement con qu\'il a réussi à faire croire à tout le monde qu\'il était intelligent, c\'est un génie du mal, un véritable monstre, il est tellement méchant qu\'il a réussi à faire pleurer un bébé en lui disant bonjour, c\'est un véritable tyran, il est tellement cruel qu\'il a réussi à faire souffrir un chat en lui donnant une caresse, c\'est un véritable sadique, il est tellement stupide qu\'il a réussi à se faire avoir par une blague de mauvais goût, c\'est un véritable idiot.')
 
 
@@ -123,9 +123,10 @@ async def kick(interaction: discord.Interaction, membre: discord.Member):
     paragraphe_1="Premier paragraphe (Obligatoire)",
     paragraphe_2="Deuxième paragraphe (Optionnel)",
     paragraphe_3="Troisième paragraphe (Optionnel)",
-    image_url="Lien de l'image (Optionnel)"
+    image_url="Lien de l'image (Optionnel)",
+    mention="Mention de joueur"
 )
-async def annonce(interaction: discord.Interaction, titre: str, sous_titre: str, paragraphe_1: str, paragraphe_2: str = None, paragraphe_3: str = None, image_url: str = None):
+async def annonce(interaction: discord.Interaction, titre: str, sous_titre: str, paragraphe_1: str, paragraphe_2: str = None, paragraphe_3: str = None, image_url: str = None, mention: discord.member = None):
     
     if not interaction.user.guild_permissions.administrator:
         embed_error = discord.Embed(description="Hop hop hop ! Tu n'as pas les perms !", color=discord.Color.red())
@@ -145,7 +146,8 @@ async def annonce(interaction: discord.Interaction, titre: str, sous_titre: str,
     contenu_final += f"{paragraphe_1}\n\n"
     if paragraphe_2: contenu_final += f"{paragraphe_2}\n\n"
     if paragraphe_3: contenu_final += f"{paragraphe_3}\n\n"
-    contenu_final += f"___\n*Transmis par l'État Major de la DMFI*"
+    if mention: contenu_final += f"{mention}\n\n"
+    contenu_final += f"_______\n*Transmis par l'État Major de la DMFI*"
     if image_url: contenu_final += f"\n{image_url}"
 
     try:
@@ -359,5 +361,103 @@ async def on_member_join(member):
     
 
 
+# premiere version
+
+## Commande pour créer une carte ID, le joueur va devoir inscrire les information qu'il faut pour créer une ID valide, quand tout sera terminé, le bot va envoyer la carte id dans le salon de validation, et les membres du staff pourront vérifier que les information sont correctes.
+
+# --- 1. Vue pour le Staff (Acceptation/Refus) ---
+class StaffValidationView(discord.ui.View):
+    def __init__(self, user: discord.Member, role_id: int):
+        super().__init__(timeout=None)
+        self.user = user
+        self.role_id = role_id
+
+    @discord.ui.button(label="Accepter", style=discord.ButtonStyle.green, emoji="✅")
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        role = interaction.guild.get_role(self.role_id)
+        if role:
+            await self.user.add_roles(role)
+            await self.user.send(f"✅ Votre carte d'identité a été validée par le staff de **{interaction.guild.name}** !")
+            await interaction.response.send_message(f"ID de {self.user.mention} validée par {interaction.user.mention}.", ephemeral=False)
+            # On désactive les boutons après traitement
+            for btn in self.children: btn.disabled = True
+            await interaction.edit_original_response(view=self)
+        self.stop()
+
+    @discord.ui.button(label="Refuser", style=discord.ButtonStyle.red, emoji="❌")
+    async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.user.send(f"❌ Votre demande d'ID sur **{interaction.guild.name}** a été refusée. Merci de vérifier vos informations.")
+        await interaction.response.send_message(f"ID de {self.user.mention} refusée par {interaction.user.mention}.", ephemeral=False)
+        for btn in self.children: btn.disabled = True
+        await interaction.edit_original_response(view=self)
+        self.stop()
+
+# --- 2. Vue pour le Joueur (Confirmation d'envoi) ---
+class PlayerConfirmView(discord.ui.View):
+    def __init__(self, embed: discord.Embed, staff_channel_id: int, role_id: int):
+        super().__init__(timeout=300)
+        self.embed = embed
+        self.staff_channel_id = staff_channel_id
+        self.role_id = role_id
+
+    @discord.ui.button(label="Envoyer au staff", style=discord.ButtonStyle.primary, emoji="📩")
+    async def send_to_staff(self, interaction: discord.Interaction, button: discord.ui.Button):
+        channel = interaction.guild.get_channel(self.staff_channel_id)
+        if channel:
+            # On envoie l'ID au staff avec la vue de validation
+            view = StaffValidationView(interaction.user, self.role_id)
+            await channel.send(content=f"🔔 Nouvelle demande d'ID de {interaction.user.mention} :", embed=self.embed, view=view)
+            await interaction.response.send_message("Votre demande a été envoyée au staff. Vous recevrez un message privé une fois validée !", ephemeral=True)
+            self.stop()
+        else:
+            await interaction.response.send_message("Erreur : Salon de validation introuvable.", ephemeral=True)
+
+# --- 3. La Commande Slash ---
+
+@bot.tree.command(name="createid", description="Remplissez les informations pour votre carte d'identité")
+async def createid(
+    interaction: discord.Interaction, 
+    nom: str, 
+    prénom: str, 
+    sexe: str, 
+    nationalité: str, 
+    date_de_naiss: str, 
+    lieu_de_naissance: str, 
+    nom_d_usage: str
+):
+    ID_ROLE_VALIDE = 1468549988052107391
+    ID_SALON_STAFF = 123456789012345678  # ⚠️ REMPLACEZ PAR L'ID DU SALON STAFF
+
+    # Vérification du rôle
+    if any(role.id == ID_ROLE_VALIDE for role in interaction.user.roles):
+        await interaction.response.send_message("Vous possédez déjà une ID valide.", ephemeral=True)
+        return
+
+    # Création de l'aperçu
+    embed = discord.Embed(
+        title=f"📇 Carte d'Identité : {nom.upper()} {prénom.capitalize()}",
+        description="Informations soumises pour validation :",
+        color=discord.Color.blue()
+    )
+    embed.set_thumbnail(url=interaction.user.display_avatar.url)
+    embed.add_field(name="Nom d'usage", value=nom_d_usage, inline=False)
+    fields = {
+        "Nom": nom.upper(), "Prénom": prénom.capitalize(), 
+        "Sexe": sexe, "Nationalité": nationalité,
+        "Né(e) le": date_de_naiss, "À": lieu_de_naissance
+    }
+    for name, value in fields.items():
+        embed.add_field(name=name, value=value, inline=True)
+    
+    embed.set_footer(text=f"ID Utilisateur : {interaction.user.id}")
+
+    # Envoi au joueur avec le bouton de confirmation
+    view = PlayerConfirmView(embed, ID_SALON_STAFF, ID_ROLE_VALIDE)
+    await interaction.response.send_message(
+        content="Vérifiez vos informations. Si tout est correct, cliquez sur le bouton ci-dessous pour l'envoyer au staff.", 
+        embed=embed, 
+        view=view, 
+        ephemeral=True
+    )
 
 bot.run(os.getenv('DISCORD_TOKEN'))
