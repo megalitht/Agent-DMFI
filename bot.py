@@ -78,13 +78,13 @@ async def test(interaction: discord.Interaction):
 
 # Pouvoir retouver facilement retrouver le lien du serveur
 @bot.tree.command(name="linkdmfi", description="affiche le lien vers le serveur discord")
-async def DMFI(interaction: discord.Interaction):
+async def link_dmfi(interaction: discord.Interaction):
     await interaction.response.send_message("Voici le lien vers le serveur discord : https://discord.gg/w6BXHah993")
 
 
 # Pouvoir retouver facilement retrouver le lien du jeu
 @bot.tree.command(name="linkbrm", description="affiche le lien vers le jeu Roblox")
-async def DMFI(interaction: discord.Interaction):
+async def link_brm(interaction: discord.Interaction):
     await interaction.response.send_message("Voici le lien vers le jeu brm5 : https://www.roblox.com/fr/games/2916899287/Blackhawk-Rescue-Mission-5")
 
 # Pouvoir ban un membre precis
@@ -352,112 +352,120 @@ async def on_voice_state_update(member, before, after):
 
 @bot.event
 async def on_member_join(member):
-    # ajouter des role specifique a l'arriver d'un membre
-    role = member.guild.get_role(1467494034934071377)
-    role = member.guild.get_role(1467479393046761556)
-    role = member.guild.get_role(1369718575723581550)
-    role = member.guild.get_role(1470039631260029120)
-    await member.add_roles(role)
+    # Liste des IDs des rôles à ajouter
+    roles_ids = [1467494034934071377, 1467479393046761556, 1369718575723581550, 1470039631260029120]
+    roles_to_add = [member.guild.get_role(rid) for rid in roles_ids if member.guild.get_role(rid)]
     
+    if roles_to_add:
+        await member.add_roles(*roles_to_add)
 
 
 # premiere version
 
 ## Commande pour créer une carte ID, le joueur va devoir inscrire les information qu'il faut pour créer une ID valide, quand tout sera terminé, le bot va envoyer la carte id dans le salon de validation, et les membres du staff pourront vérifier que les information sont correctes.
 
-# --- 1. Vue pour le Staff (Acceptation/Refus) ---
+
+# ID des configurations
+ID_ROLE_VALIDE = 1468549988052107391
+ID_SALON_ADMIN = 1371385524505284629
+
+# --- VUE POUR LE STAFF (Accepter / Refuser) ---
 class StaffValidationView(discord.ui.View):
-    def __init__(self, user: discord.Member, role_id: int):
-        super().__init__(timeout=None)
-        self.user = user
-        self.role_id = role_id
+    def __init__(self, user_id, user_data):
+        super().__init__(timeout=None) # Persistant si nécessaire
+        self.user_id = user_id
+        self.user_data = user_data
 
     @discord.ui.button(label="Accepter", style=discord.ButtonStyle.green, emoji="✅")
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
-        role = interaction.guild.get_role(self.role_id)
-        if role:
-            await self.user.add_roles(role)
-            await self.user.send(f"✅ Votre carte d'identité a été validée par le staff de **{interaction.guild.name}** !")
-            await interaction.response.send_message(f"ID de {self.user.mention} validée par {interaction.user.mention}.", ephemeral=False)
-            # On désactive les boutons après traitement
-            for btn in self.children: btn.disabled = True
-            await interaction.edit_original_response(view=self)
-        self.stop()
+        guild = interaction.guild
+        member = guild.get_member(self.user_id)
+        role = guild.get_role(ID_ROLE_VALIDE)
+
+        if member and role:
+            await member.add_roles(role)
+            # On modifie le message de l'admin pour montrer que c'est traité
+            embed = interaction.message.embeds[0]
+            embed.color = discord.Color.green()
+            embed.title = "✅ ID Validée par le Staff"
+            await interaction.message.edit(embed=embed, view=None)
+            
+            # Notifier l'utilisateur en MP (si possible)
+            try:
+                await member.send(f"Félicitations ! Votre carte d'identité sur **{guild.name}** a été acceptée.")
+            except:
+                pass 
+        else:
+            await interaction.response.send_message("Erreur : Membre ou rôle introuvable.", ephemeral=True)
 
     @discord.ui.button(label="Refuser", style=discord.ButtonStyle.red, emoji="❌")
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.user.send(f"❌ Votre demande d'ID sur **{interaction.guild.name}** a été refusée. Merci de vérifier vos informations.")
-        await interaction.response.send_message(f"ID de {self.user.mention} refusée par {interaction.user.mention}.", ephemeral=False)
-        for btn in self.children: btn.disabled = True
-        await interaction.edit_original_response(view=self)
-        self.stop()
+        member = interaction.guild.get_member(self.user_id)
+        
+        embed = interaction.message.embeds[0]
+        embed.color = discord.Color.red()
+        embed.title = "❌ ID Refusée"
+        await interaction.message.edit(embed=embed, view=None)
 
-# --- 2. Vue pour le Joueur (Confirmation d'envoi) ---
+        if member:
+            try:
+                await member.send("Votre demande d'ID a été refusée. Veuillez vérifier vos informations et recommencer.")
+            except:
+                pass
+
+# --- VUE POUR LE JOUEUR (Confirmation d'envoi) ---
 class PlayerConfirmView(discord.ui.View):
-    def __init__(self, embed: discord.Embed, staff_channel_id: int, role_id: int):
+    def __init__(self, embed_data):
         super().__init__(timeout=300)
-        self.embed = embed
-        self.staff_channel_id = staff_channel_id
-        self.role_id = role_id
+        self.embed_data = embed_data
 
     @discord.ui.button(label="Envoyer au staff", style=discord.ButtonStyle.primary, emoji="📩")
     async def send_to_staff(self, interaction: discord.Interaction, button: discord.ui.Button):
-        channel = interaction.guild.get_channel(self.staff_channel_id)
-        if channel:
-            # On envoie l'ID au staff avec la vue de validation
-            view = StaffValidationView(interaction.user, self.role_id)
-            await channel.send(content=f"🔔 Nouvelle demande d'ID de {interaction.user.mention} :", embed=self.embed, view=view)
-            await interaction.response.send_message("Votre demande a été envoyée au staff. Vous recevrez un message privé une fois validée !", ephemeral=True)
-            self.stop()
+        admin_channel = interaction.guild.get_channel(ID_SALON_ADMIN)
+        if admin_channel:
+            # On recrée l'embed pour le staff à partir des données
+            staff_embed = self.embed_data
+            staff_embed.title = "🔔 Nouvelle demande d'ID"
+            staff_embed.set_author(name=f"Demandeur : {interaction.user.display_name}", icon_url=interaction.user.display_avatar.url)
+            
+            view = StaffValidationView(interaction.user.id, self.embed_data)
+            await admin_channel.send(embed=staff_embed, view=view)
+            
+            await interaction.response.edit_message(content="✅ Votre demande a été envoyée au staff pour vérification.", embed=None, view=None)
         else:
-            await interaction.response.send_message("Erreur : Salon de validation introuvable.", ephemeral=True)
+            await interaction.response.send_message("Erreur : Salon admin introuvable.", ephemeral=True)
 
-# --- 3. La Commande Slash ---
-
-@bot.tree.command(name="createid", description="Remplissez les informations pour votre carte d'identité")
-async def createid(
-    interaction: discord.Interaction, 
-    nom: str, 
-    prénom: str, 
-    sexe: str, 
-    nationalité: str, 
-    date_de_naiss: str, 
-    lieu_de_naissance: str, 
-    nom_d_usage: str
-):
-    ID_ROLE_VALIDE = 1468549988052107391
-    ID_SALON_STAFF = 123456789012345678  # ⚠️ REMPLACEZ PAR L'ID DU SALON STAFF
-
-    # Vérification du rôle
+# --- COMMANDE SLASH ---
+@bot.tree.command(name="createid", description="Inscrivez vos informations pour créer une ID valide")
+@app_commands.choices(sexe=[
+    app_commands.Choice(name="Masculin", value="Masculin"),
+    app_commands.Choice(name="Féminin", value="Féminin"),
+    app_commands.Choice(name="Autre", value="Autre")
+])
+async def createid(interaction: discord.Interaction, nom: str, prénom: str, sexe: app_commands.Choice[str], nationalité: str, date_de_naiss: str, lieu_de_naissance: str, nom_d_usage: str):
+    
+    # Vérification du rôle existant
     if any(role.id == ID_ROLE_VALIDE for role in interaction.user.roles):
-        await interaction.response.send_message("Vous possédez déjà une ID valide.", ephemeral=True)
+        await interaction.response.send_message("Vous avez déjà une ID valide.", ephemeral=True)
         return
 
-    # Création de l'aperçu
+    # Création de l'embed d'aperçu
     embed = discord.Embed(
-        title=f"📇 Carte d'Identité : {nom.upper()} {prénom.capitalize()}",
-        description="Informations soumises pour validation :",
+        title="🕵️ Vérification de votre ID", 
+        description="Voici un aperçu de votre carte. Si tout est bon, cliquez sur le bouton pour l'envoyer au staff.", 
         color=discord.Color.blue()
     )
-    embed.set_thumbnail(url=interaction.user.display_avatar.url)
+    embed.add_field(name="Nom", value=nom.upper(), inline=True)
+    embed.add_field(name="Prénom", value=prénom.capitalize(), inline=True)
+    embed.add_field(name="Sexe", value=sexe.value, inline=True)
+    embed.add_field(name="Nationalité", value=nationalité, inline=True)
+    embed.add_field(name="Date de naissance", value=date_de_naiss, inline=True)
+    embed.add_field(name="Lieu de naissance", value=lieu_de_naissance, inline=True)
     embed.add_field(name="Nom d'usage", value=nom_d_usage, inline=False)
-    fields = {
-        "Nom": nom.upper(), "Prénom": prénom.capitalize(), 
-        "Sexe": sexe, "Nationalité": nationalité,
-        "Né(e) le": date_de_naiss, "À": lieu_de_naissance
-    }
-    for name, value in fields.items():
-        embed.add_field(name=name, value=value, inline=True)
-    
     embed.set_footer(text=f"ID Utilisateur : {interaction.user.id}")
 
-    # Envoi au joueur avec le bouton de confirmation
-    view = PlayerConfirmView(embed, ID_SALON_STAFF, ID_ROLE_VALIDE)
-    await interaction.response.send_message(
-        content="Vérifiez vos informations. Si tout est correct, cliquez sur le bouton ci-dessous pour l'envoyer au staff.", 
-        embed=embed, 
-        view=view, 
-        ephemeral=True
-    )
+    view = PlayerConfirmView(embed)
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
 
 bot.run(os.getenv('DISCORD_TOKEN'))
