@@ -3,7 +3,7 @@ import os
 import json
 import time
 import io
-import functools 
+import functools
 from dotenv import load_dotenv
 from discord.ext import commands
 from discord import app_commands
@@ -337,6 +337,7 @@ async def on_member_join(member):
 
 # ID des configurations
 ID_ROLE_VALIDE = 1468549988052107391
+ID_ROLE_NON_VALIDE = 1470039631260029120
 ID_SALON_ADMIN = 1371385524505284629
 
 # --- VUE POUR LE STAFF (Accepter / Refuser) ---
@@ -351,9 +352,11 @@ class StaffValidationView(discord.ui.View):
         guild = interaction.guild
         member = guild.get_member(self.user_id)
         role = guild.get_role(ID_ROLE_VALIDE)
+        role2 = guild._remove_role(ID_ROLE_NON_VALIDE)
 
         if member and role:
             await member.add_roles(role)
+            await member.remove_roles(role2)
             # On modifie le message de l'admin pour montrer que c'est traité
             embed = interaction.message.embeds[0]
             embed.color = discord.Color.green()
@@ -364,7 +367,7 @@ class StaffValidationView(discord.ui.View):
             try:
                 await member.send(f"Félicitations ! Votre carte d'identité sur **{guild.name}** a été acceptée.")
             except:
-                pass 
+                pass
         else:
             await interaction.response.send_message("Erreur : Membre ou rôle introuvable.", ephemeral=True)
 
