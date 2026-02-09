@@ -116,6 +116,7 @@ async def kick(interaction: discord.Interaction, membre: discord.Member):
         await interaction.response.send_message(embed=embed)
 
 
+
 @bot.tree.command(name="annonce", description="Faire une annonce structurée (Titre + 3 Paragraphes max)")
 @discord.app_commands.describe(
     titre="Le titre principal",
@@ -126,7 +127,7 @@ async def kick(interaction: discord.Interaction, membre: discord.Member):
     image_url="Lien de l'image (Optionnel)",
     mention="Mention de joueur"
 )
-async def annonce(interaction: discord.Interaction, titre: str, sous_titre: str, paragraphe_1: str, paragraphe_2: str = None, paragraphe_3: str = None, image_url: str = None, mention: discord.member = None):
+async def annonce(interaction: discord.Interaction, titre: str, sous_titre: str, paragraphe_1: str, paragraphe_2: str = None, paragraphe_3: str = None, image_url: str = None, mention: discord.Member = None):
     
     if not interaction.user.guild_permissions.administrator:
         embed_error = discord.Embed(description="Hop hop hop ! Tu n'as pas les perms !", color=discord.Color.red())
@@ -146,7 +147,7 @@ async def annonce(interaction: discord.Interaction, titre: str, sous_titre: str,
     contenu_final += f"{paragraphe_1}\n\n"
     if paragraphe_2: contenu_final += f"{paragraphe_2}\n\n"
     if paragraphe_3: contenu_final += f"{paragraphe_3}\n\n"
-    if mention: contenu_final += f"{mention}\n\n"
+    if mention: contenu_final += f"{mention.mention}\n\n" # J'ai aussi ajouté .mention ici pour que ça ping correctement
     contenu_final += f"_______\n*Transmis par l'État Major de la DMFI*"
     if image_url: contenu_final += f"\n{image_url}"
 
@@ -163,6 +164,8 @@ async def annonce(interaction: discord.Interaction, titre: str, sous_titre: str,
         await interaction.response.send_message(f"❌ Erreur 05 : Je n'ai pas la permission d'écrire dans {target_channel.mention}.", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"❌ Erreur 06 : Erreur inconnue : {e}", ephemeral=True)
+
+
 
 
 @bot.tree.command(name="fmi", description="Met à jour les rôles des membres qui ont passé leur FMI")
