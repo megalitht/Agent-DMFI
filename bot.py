@@ -207,7 +207,7 @@ async def id(interaction: discord.Interaction, membre1: discord.Member, membre2:
 # ==========================================
 
 @bot.tree.command(name="startevent", description="Démarre l'enregistrement des personnes qui rejoignent le vocal")
-@admin_only # <-- Vérification Admin ici
+@admin_only # Vérification Admin
 async def startevent(interaction: discord.Interaction, channel: discord.VoiceChannel):
     await interaction.response.defer(ephemeral=True)
 
@@ -238,7 +238,7 @@ async def startevent(interaction: discord.Interaction, channel: discord.VoiceCha
 
 
 @bot.tree.command(name="stopevent", description="Arrête l'enregistrement et envoie le rapport")
-@admin_only # <-- Vérification Admin ici
+@admin_only #   à Vérification Admin
 async def stopevent(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
@@ -341,48 +341,76 @@ ID_ROLE_NON_VALIDE = 1470039631260029120
 ID_SALON_ADMIN = 1371385524505284629
 
 # --- VUE POUR LE STAFF (Accepter / Refuser) ---
+# --- VUE POUR LE STAFF (Accepter / Refuser) ---
 class StaffValidationView(discord.ui.View):
     def __init__(self, user_id, user_data):
-        super().__init__(timeout=None) # Persistant si nécessaire
+        super().__init__(timeout=None) # Persistant
         self.user_id = user_id
         self.user_data = user_data
 
-    @discord.ui.button(label="Accepter", style=discord.ButtonStyle.green, emoji="✅")
+    @discord.ui.button(label='Accepter', style=discord.ButtonStyle.success, emoji='✅')
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
-        guild = interaction.guild
-        member = guild.get_member(self.user_id)
-        role = guild.get_role(ID_ROLE_VALIDE)
-        role2 = guild._remove_role(ID_ROLE_NON_VALIDE)
+        # 1. On récupère le joueur CIBLE via son ID stocké
+        target_member = interaction.guild.get_member(self.user_id)
+        
+        # S'il a quitté le serveur entre temps
+        if target_member is None:
+            return await interaction.response.send_message("❌ Le joueur a quitté le serveur.", ephemeral=True)
 
-        if member and role:
-            await member.add_roles(role)
-            await member.remove_roles(role2)
-            # On modifie le message de l'admin pour montrer que c'est traité
+        # 2. On récupère les rôles
+        role_a_retirer = interaction.guild.get_role(ID_ROLE_NON_VALIDE)
+        role_a_ajouter = interaction.guild.get_role(ID_ROLE_VALIDE) # Je suppose que tu veux ajouter le rôle "Valide" aussi ?
+
+        if role_a_retirer is None or role_a_ajouter is None:
+             return await interaction.response.send_message("❌ Erreur de configuration des rôles (ID introuvables).", ephemeral=True)
+
+        try:
+            # 3. On modifie les rôles DU JOUEUR (target_member), pas du staff
+            await target_member.remove_roles(role_a_retirer)
+            await target_member.add_roles(role_a_ajouter) # Ajoute le rôle valide
+            
+            # 4. Feedback
+            await interaction.response.send_message(f"✅ La demande de {target_member.mention} a été validée.", ephemeral=True)
+            
+            # 5. On met à jour le message du staff pour dire que c'est traité
             embed = interaction.message.embeds[0]
             embed.color = discord.Color.green()
-            embed.title = "✅ ID Validée par le Staff"
+            embed.title = "✅ ID Validée"
+            # On désactive les boutons
+            self.stop()
             await interaction.message.edit(embed=embed, view=None)
-            
-            # Notifier l'utilisateur en MP (si possible)
+
+            # 6. (Optionnel) MP au joueur
             try:
-                await member.send(f"Félicitations ! Votre carte d'identité sur **{guild.name}** a été acceptée.")
+                await target_member.send(f"🎉 Félicitations, ton ID a été validée par {interaction.user.display_name} !")
             except:
                 pass
-        else:
-            await interaction.response.send_message("Erreur : Membre ou rôle introuvable.", ephemeral=True)
+
+        except discord.Forbidden:
+            await interaction.response.send_message("🚫 Je n'ai pas la permission de modifier les rôles de ce membre (hiérarchie).", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"Erreur : {e}", ephemeral=True)
 
     @discord.ui.button(label="Refuser", style=discord.ButtonStyle.red, emoji="❌")
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # On récupère le joueur
         member = interaction.guild.get_member(self.user_id)
         
+        # On met à jour l'embed du staff
         embed = interaction.message.embeds[0]
         embed.color = discord.Color.red()
         embed.title = "❌ ID Refusée"
+        embed.set_footer(text=f"Refusé par {interaction.user.display_name}")
+        
+        self.stop() # On arrête la vue
         await interaction.message.edit(embed=embed, view=None)
 
+        await interaction.response.send_message("La demande a été refusée.", ephemeral=True)
+
+        # On prévient le joueur
         if member:
             try:
-                await member.send("Votre demande d'ID a été refusée. Veuillez vérifier vos informations et recommencer.")
+                await member.send("Votre demande d'ID a été refusée par l'administration. Veuillez vérifier vos informations et recommencer.")
             except:
                 pass
 
@@ -424,7 +452,7 @@ async def createid(interaction: discord.Interaction, nom: str, prénom: str, sex
 
     # Création de l'embed d'aperçu
     embed = discord.Embed(
-        title="🕵️ Vérification de votre ID", 
+        title="🕵️ Vérification de votre ID",
         description="Voici un aperçu de votre carte. Si tout est bon, cliquez sur le bouton pour l'envoyer au staff.", 
         color=discord.Color.blue()
     )
