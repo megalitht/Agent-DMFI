@@ -40,3 +40,21 @@ def get_identity(user_id):
     result = cursor.fetchone()
     conn.close()
     return result
+
+def get_all_identities():
+    """Récupère la liste de toutes les ID enregistrées (pour check_db)."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT user_id, nom, prenom FROM id_carte')
+    results = cursor.fetchall()
+    conn.close()
+    return results
+
+def update_identity_field(user_id, field, value):
+    """Modifie une info précise d'un joueur."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    query = f"UPDATE id_carte SET {field} = ? WHERE user_id = ?"
+    cursor.execute(query, (value, user_id))
+    conn.commit()
+    conn.close()
