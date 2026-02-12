@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from discord.ext import commands
 
 load_dotenv()
+setup_db()
 
 # Configuration du bot
 class MyBot(commands.Bot):

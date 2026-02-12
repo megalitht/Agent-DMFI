@@ -47,7 +47,7 @@ class StaffValidationView(discord.ui.View):
             usage=data.get("Nom d'usage")
         )
 
-        # 3. Mise à jour visuelle
+        # Mise à jour visuelle
         embed.color = discord.Color.green()
         embed.title = "✅ ID Validée et Enregistrée"
         await interaction.message.edit(embed=embed, view=None)
@@ -115,7 +115,7 @@ class RPSystem(commands.Cog):
         app_commands.Choice(name="Masculin", value="Masculin"),
         app_commands.Choice(name="Féminin", value="Féminin")
     ])
-    # @admin_only  # Décommente si tu veux limiter cette commande
+    # @admin_only  # Décommente pour limiter cette commande
     async def adm_addid(self, interaction: discord.Interaction, cible: discord.Member, nom: str, prenom: str, sexe: app_commands.Choice[str], nationalite: str, date_naiss: str, lieu_naiss: str, nom_usage: str):
         add_identity(cible.id, nom.upper(), prenom.capitalize(), sexe.value, nationalite, date_naiss, lieu_naiss, nom_usage)
         await interaction.response.send_message(f"✅ L'ID de {cible.mention} a été ajoutée manuellement au SQL.", ephemeral=True)

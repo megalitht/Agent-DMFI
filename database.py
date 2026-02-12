@@ -5,7 +5,7 @@ DB_NAME = "id_system.db"
 def setup_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    # Utilisation du nom de table 'id_carte' comme demandé
+    # Utilisation du nom de table 'id_carte'
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS id_carte (
             user_id INTEGER PRIMARY KEY,
