@@ -1,5 +1,6 @@
 # main.py
 import discord
+from database import setup_db
 import os
 from dotenv import load_dotenv
 from discord.ext import commands

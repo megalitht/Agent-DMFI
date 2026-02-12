@@ -1,4 +1,5 @@
 # cogs/rp_system.py
+from database import add_identity, get_identity
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -16,22 +17,40 @@ class StaffValidationView(discord.ui.View):
 
     @discord.ui.button(label="Accepter", style=discord.ButtonStyle.green, emoji="✅")
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
-        member = interaction.guild.get_member(self.user_id)
-        role = interaction.guild.get_role(ID_ROLE_VALIDE)
-        role_non = interaction.guild.get_role(ID_ROLE_NON_VALIDE)
+        guild = interaction.guild
+        member = guild.get_member(self.user_id)
+        
+        # Gestion des rôles
+        role_valide = guild.get_role(ID_ROLE_VALIDE)
+        role_non_valide = guild.get_role(ID_ROLE_NON_VALIDE)
+        if member and role_valide:
+            await member.add_roles(role_valide)
+            if role_non_valide: await member.remove_roles(role_non_valide)
 
-        if member and role:
-            await member.add_roles(role)
-            if role_non: await member.remove_roles(role_non)
-            
-            embed = interaction.message.embeds[0]
-            embed.color = discord.Color.green()
-            embed.title = "✅ ID Validée par le Staff"
-            await interaction.message.edit(embed=embed, view=None)
-            try: await member.send(f"Votre ID sur **{interaction.guild.name}** a été acceptée !")
-            except: pass
-        else:
-            await interaction.response.send_message("Erreur : Membre introuvable.", ephemeral=True)
+        # AJOUT AUTOMATIQUE À LA BASE DE DONNÉES
+        embed = interaction.message.embeds[0]
+        data = {f.name: f.value for f in embed.fields}
+        
+        # On sépare Date et Lieu qui étaient dans le même champ dans mon exemple précédent
+        naissance = data.get("Naissance", "Inconnu à Inconnu")
+        d_naiss = naissance.split(" à ")[0] if " à " in naissance else naissance
+        l_naiss = naissance.split(" à ")[1] if " à " in naissance else "Inconnu"
+
+        add_identity(
+            user_id=self.user_id,
+            nom=data.get("Nom"),
+            prenom=data.get("Prénom"),
+            sexe=data.get("Sexe"),
+            nat=data.get("Nationalité"),
+            d_naiss=d_naiss,
+            l_naiss=l_naiss,
+            usage=data.get("Nom d'usage")
+        )
+
+        # 3. Mise à jour visuelle
+        embed.color = discord.Color.green()
+        embed.title = "✅ ID Validée et Enregistrée"
+        await interaction.message.edit(embed=embed, view=None)
 
     @discord.ui.button(label="Refuser", style=discord.ButtonStyle.red, emoji="❌")
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -89,6 +108,38 @@ class RPSystem(commands.Cog):
         
         view = PlayerConfirmView(embed)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    @app_commands.command(name="adm_addid", description="Ajouter manuellement une ID en base de données")
+    @app_commands.describe(cible="Le joueur", sexe="Sexe")
+    @app_commands.choices(sexe=[
+        app_commands.Choice(name="Masculin", value="Masculin"),
+        app_commands.Choice(name="Féminin", value="Féminin")
+    ])
+    # @admin_only  # Décommente si tu veux limiter cette commande
+    async def adm_addid(self, interaction: discord.Interaction, cible: discord.Member, nom: str, prenom: str, sexe: app_commands.Choice[str], nationalite: str, date_naiss: str, lieu_naiss: str, nom_usage: str):
+        add_identity(cible.id, nom.upper(), prenom.capitalize(), sexe.value, nationalite, date_naiss, lieu_naiss, nom_usage)
+        await interaction.response.send_message(f"✅ L'ID de {cible.mention} a été ajoutée manuellement au SQL.", ephemeral=True)
+
+
+    @app_commands.command(name="myid", description="Afficher ma carte d'identité")
+    async def myid(self, interaction: discord.Interaction):
+        data = get_identity(interaction.user.id)
+        
+        if not data:
+            await interaction.response.send_message("❌ Vous n'avez pas encore d'ID enregistrée. Utilisez `/createid`.", ephemeral=True)
+            return
+
+        embed = discord.Embed(title=f"🪪 Carte d'Identité - {interaction.user.display_name}", color=discord.Color.blue())
+        embed.add_field(name="Nom", value=data[1], inline=True)
+        embed.add_field(name="Prénom", value=data[2], inline=True)
+        embed.add_field(name="Sexe", value=data[3], inline=True)
+        embed.add_field(name="Nationalité", value=data[4], inline=True)
+        embed.add_field(name="Date de naissance", value=data[5], inline=True)
+        embed.add_field(name="Lieu de naissance", value=data[6], inline=True)
+        embed.add_field(name="Nom d'usage", value=data[7], inline=False)
+        embed.set_footer(text=f"Validé le {data[8]}")
+        
+        await interaction.response.send_message(embed=embed)
 
 async def setup(bot):
     await bot.add_cog(RPSystem(bot))
