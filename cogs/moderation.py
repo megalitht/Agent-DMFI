@@ -162,5 +162,54 @@ class Moderation(commands.Cog):
         data["active"] = False
         save_event_data(data)
 
+
+    @app_commands.command(name="valider_candidature", description="Valide une recrue (Réservé au Créateur)")
+    @app_commands.describe(recrue="La personne dont la candidature est validée")
+    async def valider_candidature(self, interaction: discord.Interaction, recrue: discord.Member):
+        # 1. SÉCURITÉ ABSOLUE (Uniquement ton ID)
+        ID_AUTORISE = 602585381120114698
+        
+        if interaction.user.id != ID_AUTORISE:
+            await interaction.response.send_message("⛔ **Accès Refusé.** Seul le Créateur peut valider une candidature.", ephemeral=True)
+            return
+
+        # 2. On fait patienter (au cas où les rôles mettent du temps)
+        await interaction.response.defer()
+
+        # --- CONFIGURATION DES RÔLES (Mets tes IDs ici) ---
+        ID_ROLE_A_DONNER = 123456789012345678  # Remplace par l'ID du rôle "Soldat" ou "Recrue"
+        ID_ROLE_A_RETIRER = 123456789012345678 # Remplace par l'ID du rôle "Candidat" (si yen a un)
+        
+        role_give = interaction.guild.get_role(ID_ROLE_A_DONNER)
+        role_remove = interaction.guild.get_role(ID_ROLE_A_RETIRER)
+
+        # 3. Attribution des rôles
+        try:
+            if role_give:
+                await recrue.add_roles(role_give)
+            
+            if role_remove and role_remove in recrue.roles:
+                await recrue.remove_roles(role_remove)
+            
+            # 4. Message de confirmation public
+            embed = discord.Embed(
+                title="✅ Candidature Validée",
+                description=f"Le dossier de {recrue.mention} a été validé par le Haut Commandement.",
+                color=discord.Color.green()
+            )
+            embed.set_thumbnail(url=recrue.display_avatar.url)
+            await interaction.followup.send(embed=embed)
+
+            # 5. Petit MP au joueur (optionnel)
+            try:
+                await recrue.send(f"🎉 Félicitations ! Votre candidature sur **{interaction.guild.name}** a été validée. Bienvenue parmi nous.")
+            except:
+                pass # On ignore si ses MP sont fermés
+
+        except Exception as e:
+            await interaction.followup.send(f"⚠️ Une erreur s'est produite lors de l'attribution des rôles : {e}")
+
+
+
 async def setup(bot):
     await bot.add_cog(Moderation(bot))
