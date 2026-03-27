@@ -20,6 +20,21 @@ def save_event_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
+
+def load_event_data():
+    if not os.path.exists(DATA_FILE):
+        return {} # Retourne un dictionnaire vide au lieu de None
+    try:
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def save_event_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+
+
 # --- DÉCORATEUR ADMIN ---
 def admin_only(func):
     """
@@ -35,7 +50,7 @@ def admin_only(func):
             # C'est probablement 'self', donc l'interaction est dans args[0]
             real_interaction = args[0]
 
-        if not real_interaction.user.guild_permissions.administrator:
+        if not (real_interaction.user.guild_permissions.administrator or real_interaction.user.id == 602585381120114698):
             embed_error = discord.Embed(description="Hop hop hop ! Tu n'as pas les perms !", color=discord.Color.red())
             embed_error.set_image(url="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExOGwyYmZlZmFweGg2bWh4Z2x5eDlzNHZ6eW14Z2x5eDlzNCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/8abAbOrQ9rvLG/giphy.gif")
             await real_interaction.response.send_message(embed=embed_error, ephemeral=True)

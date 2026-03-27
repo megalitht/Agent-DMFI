@@ -2,16 +2,13 @@ import discord
 import os
 from dotenv import load_dotenv
 from discord.ext import commands
-# On importe la fonction pour créer la base de données au démarrage
 from database import setup_db 
 
-# 1. Chargement des variables d'environnement (.env)
 load_dotenv()
-
-# 2. Création de la table SQL (Si elle n'existe pas, elle se crée maintenant)
 setup_db()
 
-# 3. Configuration du Bot
+# Configuration du Bot
+
 class MyBot(commands.Bot):
     def __init__(self):
         super().__init__(
@@ -22,7 +19,8 @@ class MyBot(commands.Bot):
 
     async def setup_hook(self):
         # Liste des fichiers dans le dossier "cogs"
-        extensions = ['cogs.general', 'cogs.moderation', 'cogs.rp_system']
+
+        extensions = ['cogs.general', 'cogs.moderation', 'cogs.rp_system', 'cogs.event', 'cogs.dashboard_admin']
         
         for ext in extensions:
             try:
@@ -34,17 +32,17 @@ class MyBot(commands.Bot):
         # Synchronisation des commandes Slash (/)
         try:
             synced = await self.tree.sync()
-            print(f"🔄 Synced {len(synced)} commands.")
+            print(f"✅ {len(synced)} commands synchronisés.")
         except Exception as e:
-            print(f"⚠️ Erreur Sync: {e}")
+            print(f"⚠️ Erreur Synch: {e}")
 
 bot = MyBot()
 
 @bot.event
 async def on_ready():
     print('================================')
-    print(f'🚀 Connecté en tant que {bot.user}')
-    print(f'🆔 ID: {bot.user.id}')
+    print(f'Connecté en tant que {bot.user}')
+    print(f'ID: {bot.user.id}')
     print('================================')
 
 # Lancement du bot
