@@ -13,7 +13,15 @@ import gspread
 import numpy as np
 from PIL import Image, ImageOps, ImageEnhance
 import easyocr
-from utils import admin_only, is_user_admin, get_admin_error_embed
+from utils import (
+    admin_only, formateur_only, is_user_admin, is_formateur_or_admin,
+    get_admin_error_embed, get_recensement_worksheet, rename_with_grade,
+)
+from data import (
+    GRADES_PROGRESSION, GRADES_META, GRADE_ROLES,
+    FGI_ROLE_REMOVE_ID, FGI_ROLES_ADD_IDS, BREVET_ROLES,
+    COL_GRADE, COL_POINTS, SPREADSHEET_ID_DEFAUT, cellule,
+)
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="torch.ao.nn.quantized")
@@ -46,84 +54,7 @@ PROMO_TIMES = [
     time(hour=19, minute=0, tzinfo=PARIS_TZ),
 ]
 
-# Hiérarchie des grades : Grade actuel -> (Prochain grade, Points ou Condition par défaut)
-GRADES_PROGRESSION = {
-    "EVAT": ("SDT", "FMI"),
-    "SDT": ("1CL", "1"),
-    "1CL": ("CPL", "2"),
-    "CPL": ("CCH", "3"),
-    "CCH": ("CC1", "4"),
-    "CC1": ("SGT", "Dossier"),
-    "SGT": ("SCH", "Test compétences"),
-    "SCH": ("ADJ", "5"),
-    "ADJ": ("ADC", "Test instructeur"),
-    "ADC": ("MAJ", "6"),
-    "MAJ": ("ASP", "Dossier"),
-    "ASP": ("SLT", "École Officier"),
-    "SLT": ("LTN", "École Officier"),
-    "LTN": ("CNE", "Accord"),
-    "CNE": ("CDT", "Accord"),
-    "CDT": ("LCL", "Accord"),
-    "LCL": ("COL", "Accord"),
-    "COL": ("GDB", "Accord"),
-    "GDB": ("Max", "Grade sommital"),
-}
-
-# Nom complet affiché dans l'annonce et nom exact de l'émoji sur le serveur Discord
-GRADES_META = {
-    "EVAT": ("Engagé Volontaire", None),
-    "SDT": ("Soldat", "soldat"),
-    "1CL": ("Soldat 1ère Classe", "Soldat_1er_Classe"),
-    "CPL": ("Caporal", "Caporal"),
-    "CCH": ("Caporal Chef", "CaporalChef"),
-    "CC1": ("Caporal Chef de Première Classe", "CaporalChef_1er_Classe"),
-    "SGT": ("Sergent", "Sergent"),
-    "SCH": ("Sergent Chef", "Sergent_Chef"),
-    "ADJ": ("Adjudant", "Adjudant"),
-    "ADC": ("Adjudant Chef", "Adjudant_Chef"),
-    "MAJ": ("Major", "Major"),
-    "ASP": ("Aspirant", "Aspirant"),
-    "SLT": ("Sous-Lieutenant", "Sous_Lieutenant"),
-    "LTN": ("Lieutenant", "Lieutenant"),
-    "CNE": ("Capitaine", "Capitaine"),
-    "CDT": ("Commandant", "Commandant"),
-    "LCL": ("Lieutenant-Colonel", "Lieutenant_Colonel"),
-    "COL": ("Colonel", "Colonel"),
-    "GDB": ("Général de Brigade", None),
-}
-
-# --- CONFIGURATION DES RÔLES DISCORD PAR GRADE ---
-GRADE_ROLES: dict[str, int | None] = {
-    "EVAT": 1507786024653291751,  # Rôle recrue/EVAT retiré à la FGI
-    "SDT": 1507794729029337118,
-    "1CL": 1507794729742500061,
-    "CPL": 1507794728350126170,
-    "CCH": 1507794727725170709,
-    "CC1": 1507794725606789202,
-    "SGT": 1507795079753105469,
-    "SCH": 1507795074321219685,
-    "ADJ": 1507795081040494632,
-    "ADC": 1507795080482914304,
-    "MAJ": 1507795267456467014,
-    "ASP": 1507795346804179136,
-    "SLT": 1507795347823530116,
-    "LTN": 1507795348746403840,
-    "CNE": 1507795565554172105,
-    "CDT": 1507795568112566352,
-    "LCL": 1507795576882729071,
-    "COL": 1507795578761777222,
-    "GDB": 1528074538473226380,
-}
-
-# Rôles spécifiques au passage de la FGI (EVAT -> SDT)
-FGI_ROLE_REMOVE_ID = 1507786024653291751
-FGI_ROLES_ADD_IDS = [
-    1507794729029337118,  # Rôle SDT
-    1507794276820717608,
-    1508212512133353582,
-    1507883337295986781,
-    1508202657377161438
-]
+# Les tables (grades, rôles, FGI...) sont dans data.py
 
 # --- 1. POP-UP POUR AJOUTER / RETIRER DES PSEUDOS AVANT VALIDATION ---
 class ModifierListeModal(discord.ui.Modal, title="Modifier la liste des participants"):
@@ -465,8 +396,9 @@ class FGIConfirmView(discord.ui.View):
         for raw_name in detected_raw:
             self._match_and_classify_evat(raw_name)
 
+    # Formateurs + Admins
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if not is_user_admin(interaction.user):
+        if not is_formateur_or_admin(interaction.user):
             await interaction.response.send_message(embed=get_admin_error_embed(), ephemeral=True)
             return False
         return True
@@ -722,7 +654,7 @@ class FGIConfirmView(discord.ui.View):
 class Operations(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.spreadsheet_id = os.getenv("SPREADSHEET_ID")
+        self.spreadsheet_id = os.getenv("SPREADSHEET_ID") or SPREADSHEET_ID_DEFAUT
         self.credentials_path = os.getenv("GOOGLE_CREDENTIALS_PATH", "service_account.json")
         self.promo_channel_id = int(os.getenv("PROMO_CHANNEL_ID", "1508559680912363660"))
         self.gc = gspread.service_account(filename=self.credentials_path)
@@ -740,11 +672,7 @@ class Operations(commands.Cog):
             self.auto_promotions_loop.cancel()
 
     def _get_recensement_sheet(self):
-        sh = self.gc.open_by_key(self.spreadsheet_id)
-        try:
-            return sh.worksheet("Recensement ")
-        except gspread.WorksheetNotFound:
-            return sh.get_worksheet(0)
+        return get_recensement_worksheet(self.gc, self.spreadsheet_id)
 
     def _extract_pseudos_from_image(self, image_bytes: bytes) -> list[str]:
         """Prétraitement de la capture d'écran Roblox et extraction OCR 100% locale."""
@@ -886,9 +814,10 @@ class Operations(commands.Cog):
         updates = []
 
         for row_num in evat_players:
-            updates.append({"range": f"G{row_num}", "values": [["SDT"]]})
-            updates.append({"range": f"I{row_num}", "values": [["0"]]})
-            updates.append({"range": f"R{row_num}", "values": [[True]]})  # Coche la case FGI (Colonne R)
+            updates.append({"range": cellule(COL_GRADE, row_num), "values": [["SDT"]]})
+            updates.append({"range": cellule(COL_POINTS, row_num), "values": [["0"]]})
+            # Coche la case FGI (colonne définie dans data.BREVET_ROLES)
+            updates.append({"range": cellule(BREVET_ROLES["FGI"]["col_index"], row_num), "values": [[True]]})
 
         for row_num, inst in instructors.items():
             if inst["is_numeric_req"]:
@@ -905,8 +834,7 @@ class Operations(commands.Cog):
         name="fgi",
         description="Validation FGI automatique via capture d'écran (EVAT -> SDT + 1/3 pt aux instructeurs)."
     )
-    @app_commands.default_permissions(administrator=True)
-    @admin_only
+    @formateur_only  # Formateurs + Admins (pas de default_permissions, sinon la commande est masquée aux formateurs)
     @app_commands.describe(
         image="La capture d'écran de la liste des joueurs présents à la FGI",
         instructeurs="Pseudo(s) Discord ou mention(s) des instructeurs séparés par une virgule ou un espace (ex: @User1, @User2)", 
@@ -966,22 +894,8 @@ class Operations(commands.Cog):
 
     async def _rename_promoted_member(self, membre: discord.Member, new_grade: str, fallback_usage: str) -> str:
         """Remplace uniquement l'encadré [GRADE] tout en conservant les suffixes du joueur."""
-        current_nick = membre.display_name
-        if re.match(r"^\[[^\]]+\]", current_nick):
-            nouveau_pseudo = re.sub(r"^\[[^\]]+\]\s*", f"[{new_grade}] ", current_nick)
-        else:
-            base_name = current_nick or fallback_usage
-            nouveau_pseudo = f"[{new_grade}] {base_name}"
+        return await rename_with_grade(membre, new_grade, fallback_usage)
 
-        nouveau_pseudo = nouveau_pseudo[:32]
-        try:
-            await membre.edit(nick=nouveau_pseudo, reason=f"Promotion DMFI -> {new_grade}")
-            return f"✅ `{nouveau_pseudo}`"
-        except discord.Forbidden:
-            return "⚠️ Renommage impossible (rôle supérieur au bot)"
-        except discord.HTTPException as e:
-            return f"⚠️ Erreur renommage ({e.status})"
-        
     async def _apply_fgi_roles(self, membre: discord.Member) -> str:
         """Retire le rôle pré-FGI et attribue les 4 rôles post-FGI (dont SDT)."""
         guild = membre.guild

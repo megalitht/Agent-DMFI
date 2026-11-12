@@ -1,10 +1,18 @@
 # utils.py
 from __future__ import annotations
+import re
+import difflib
 import functools
 import discord
 from discord.ext import commands
+import gspread
 
-ADMIN_MASTER_ID = 602585381120114698
+from data import ADMIN_MASTER_ID, ROLE_FORMATEUR_ID, WORKSHEET_NAMES
+
+
+# =====================================================================
+# PERMISSIONS
+# =====================================================================
 
 def is_user_admin(user: discord.Member | discord.User) -> bool:
     """Vérifie si l'utilisateur est administrateur du serveur ou possède l'ID maître."""
@@ -13,6 +21,18 @@ def is_user_admin(user: discord.Member | discord.User) -> bool:
     if isinstance(user, discord.Member):
         return user.guild_permissions.administrator
     return False
+
+
+def is_user_formateur(user: discord.Member | discord.User) -> bool:
+    """Vérifie si l'utilisateur possède le rôle Formateur."""
+    if isinstance(user, discord.Member):
+        return any(r.id == ROLE_FORMATEUR_ID for r in user.roles)
+    return False
+
+
+def is_formateur_or_admin(user: discord.Member | discord.User) -> bool:
+    return is_user_admin(user) or is_user_formateur(user)
+
 
 def get_admin_error_embed() -> discord.Embed:
     """Génère l'embed d'erreur de permission avec le GIF."""
@@ -25,27 +45,102 @@ def get_admin_error_embed() -> discord.Embed:
     )
     return embed_error
 
-# --- DÉCORATEUR ADMIN ---
-def admin_only(func):
+
+def _permission_decorator(check):
+    """Fabrique un décorateur compatible avec discord.Interaction et commands.Context."""
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            # Si c'est dans un Cog, args[0] est 'self' et args[1] est Context ou Interaction
+            target = args[0]
+            if not isinstance(target, (discord.Interaction, commands.Context)) and len(args) > 1:
+                target = args[1]
+
+            user = target.user if isinstance(target, discord.Interaction) else target.author
+
+            if not check(user):
+                embed_error = get_admin_error_embed()
+                if isinstance(target, discord.Interaction):
+                    await target.response.send_message(embed=embed_error, ephemeral=True)
+                else:
+                    await target.send(embed=embed_error, ephemeral=True)
+                return
+
+            return await func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+# --- DÉCORATEURS ---
+admin_only = _permission_decorator(is_user_admin)
+formateur_only = _permission_decorator(is_formateur_or_admin)  # Formateurs + Admins
+
+
+# =====================================================================
+# GOOGLE SHEETS
+# =====================================================================
+
+def get_recensement_worksheet(gc: gspread.Client, spreadsheet_id: str) -> gspread.Worksheet:
+    """Ouvre l'onglet de recensement (avec ou sans espace final dans son nom)."""
+    sh = gc.open_by_key(spreadsheet_id)
+    for name in WORKSHEET_NAMES:
+        try:
+            return sh.worksheet(name)
+        except gspread.WorksheetNotFound:
+            continue
+    return sh.get_worksheet(0)
+
+
+# =====================================================================
+# MEMBRES
+# =====================================================================
+
+def split_pseudos(texte: str) -> list[str]:
+    """Découpe une saisie 'a, b c' ou des mentions en liste de pseudos."""
+    return [t.strip() for t in re.split(r"[,;\s\n]+", texte or "") if t.strip()]
+
+
+def find_player(sheet_index: list[dict], query: str, allow_discord: bool = True) -> dict | None:
     """
-    Décorateur custom compatible avec discord.Interaction et commands.Context.
+    Retrouve un membre dans l'index du Sheet à partir d'une mention, d'un ID Discord,
+    d'un @Discord, d'un pseudo Roblox ou d'un nom d'usage (tolérant aux erreurs OCR).
     """
-    @functools.wraps(func)
-    async def wrapper(*args, **kwargs):
-        # Si c'est dans un Cog, args[0] est 'self' et args[1] est Context ou Interaction
-        target = args[0]
-        if not isinstance(target, (discord.Interaction, commands.Context)) and len(args) > 1:
-            target = args[1]
+    q = re.sub(r"[<@!>]", "", query.strip()).lower()
+    if len(q) < 2:
+        return None
 
-        user = target.user if isinstance(target, discord.Interaction) else target.author
+    for entry in sheet_index:
+        if allow_discord and q in (entry["discord_id"].lower(), entry["discord_tag"].lower()):
+            return entry
+        if q in (entry["roblox"].lower(), entry["nom_usage"].lower()):
+            return entry
 
-        if not is_user_admin(user):
-            embed_error = get_admin_error_embed()
-            if isinstance(target, discord.Interaction):
-                await target.response.send_message(embed=embed_error, ephemeral=True)
-            else:
-                await target.send(embed=embed_error, ephemeral=True)
-            return
+    champs = [("roblox", 0.84), ("nom_usage", 0.84)]
+    if allow_discord:
+        champs.insert(0, ("discord_tag", 0.82))
+    for champ, cutoff in champs:
+        mapping = {e[champ].lower(): e for e in sheet_index if e[champ]}
+        proche = difflib.get_close_matches(q, list(mapping.keys()), n=1, cutoff=cutoff)
+        if proche:
+            return mapping[proche[0]]
+    return None
 
-        return await func(*args, **kwargs)
-    return wrapper
+
+async def rename_with_grade(membre: discord.Member, new_grade: str, fallback_usage: str, reason: str | None = None) -> str:
+    """Remplace uniquement l'encadré [GRADE] du surnom en conservant le reste."""
+    current_nick = membre.display_name
+    if re.match(r"^\[[^\]]+\]", current_nick):
+        nouveau_pseudo = re.sub(r"^\[[^\]]+\]\s*", f"[{new_grade}] ", current_nick)
+    else:
+        nouveau_pseudo = f"[{new_grade}] {current_nick or fallback_usage}"
+
+    nouveau_pseudo = nouveau_pseudo[:32]
+    if nouveau_pseudo == membre.nick:
+        return f"✅ `{nouveau_pseudo}`"
+    try:
+        await membre.edit(nick=nouveau_pseudo, reason=reason or f"Promotion DMFI -> {new_grade}")
+        return f"✅ `{nouveau_pseudo}`"
+    except discord.Forbidden:
+        return "⚠️ Renommage impossible (rôle supérieur au bot)"
+    except discord.HTTPException as e:
+        return f"⚠️ Erreur renommage ({e.status})"

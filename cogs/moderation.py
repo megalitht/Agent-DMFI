@@ -7,33 +7,14 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import gspread
-from utils import admin_only, is_user_admin, get_admin_error_embed
+from utils import admin_only, is_user_admin, get_admin_error_embed, get_recensement_worksheet
+from data import (
+    GRADES_PROGRESSION, SPECIALITE_ROLES, SPREADSHEET_ID_DEFAUT,
+    INTEGRATION_ROLE_ADD_ID as ROLE_ADD_ID,
+    INTEGRATION_ROLE_REMOVE_ID as ROLE_REMOVE_ID,
+)
 
-ROLE_ADD_ID = 1507786024653291751
-ROLE_REMOVE_ID = 1508421388552245409
-
-# Hiérarchie des grades (Grade actuel -> (Prochain grade, Points/Condition par défaut))
-GRADES_PROGRESSION = {
-    "EVAT": ("SDT", "FMI"),
-    "SDT": ("1CL", "1"),
-    "1CL": ("CPL", "2"),
-    "CPL": ("CCH", "3"),
-    "CCH": ("CC1", "4"),
-    "CC1": ("SGT", "Dossier"),
-    "SGT": ("SCH", "Test compétences"),
-    "SCH": ("ADJ", "5"),
-    "ADJ": ("ADC", "Test instructeur"),
-    "ADC": ("MAJ", "6"),
-    "MAJ": ("ASP", "Dossier"),
-    "ASP": ("SLT", "École Officier"),
-    "SLT": ("LTN", "École Officier"),
-    "LTN": ("CNE", "Accord"),
-    "CNE": ("CDT", "Accord"),
-    "CDT": ("LCL", "Accord"),
-    "LCL": ("COL", "Accord"),
-    "COL": ("GDB", "Accord"),
-    "GDB": ("Max", "Grade sommital"),
-}
+# Les tables (grades, rôles...) sont dans data.py
 
 # --- 1. POP-UP DU JOUEUR (Saisie des informations) ---
 class DemandeIntegrationModal(discord.ui.Modal, title="Demande d'intégration DMFI"):
@@ -344,7 +325,7 @@ class ModerationActionView(discord.ui.View):
 class Moderation(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.spreadsheet_id = os.getenv("SPREADSHEET_ID")
+        self.spreadsheet_id = os.getenv("SPREADSHEET_ID") or SPREADSHEET_ID_DEFAUT
         self.credentials_path = os.getenv("GOOGLE_CREDENTIALS_PATH", "service_account.json")
         self.gc = gspread.service_account(filename=self.credentials_path)
     
@@ -355,12 +336,7 @@ class Moderation(commands.Cog):
         
     def _get_recensement_sheet(self):
         """Ouvre le Google Sheet et cible l'onglet de recensement."""
-        sh = self.gc.open_by_key(self.spreadsheet_id)
-        try:
-            # Attention à l'espace à la fin du nom de l'onglet dans ton fichier
-            return sh.worksheet("Recensement ")
-        except gspread.WorksheetNotFound:
-            return sh.get_worksheet(0)
+        return get_recensement_worksheet(self.gc, self.spreadsheet_id)
         
     async def _update_member_roles(self, membre: discord.Member) -> str:
         """Ajoute le rôle de membre recensé et retire le rôle d'attente."""
@@ -678,8 +654,8 @@ class Moderation(commands.Cog):
                     return row[idx].strip() if len(row) > idx and row[idx] else ""
 
                 specs = []
-                for idx, label in [(13, "MECA"), (14, "MEDIC"), (15, "R&P"), (16, "PILOTE")]:
-                    if get_col(idx).upper() == "TRUE":
+                for label, cfg in SPECIALITE_ROLES.items():
+                    if get_col(cfg["col_index"] - 1).upper() == "TRUE":
                         specs.append(label)
 
                 return {
@@ -780,4 +756,3 @@ class Moderation(commands.Cog):
         
 async def setup(bot: commands.Bot):
     await bot.add_cog(Moderation(bot))
-    
