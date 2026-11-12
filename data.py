@@ -183,9 +183,9 @@ DIPLOMES_HORS_COMMANDE: set[str] = {"FGI"}
 
 # Colonne M. Laisse None pour ne pas vérifier ce régiment dans /sync.
 REGIMENT_ROLES: dict[str, int | None] = {
-    "152e RI": None,
-    "1er RPIMa": None,
-    "4e RHFS": None,
+    "152e RI": 1508212512133353582,
+    "1er RPIMa": 1543689871518859336,
+    "4e RHFS": 1524002973619982356,
 }
 
 # =====================================================================
