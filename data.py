@@ -52,12 +52,12 @@ GRADES_ORDRE: list[str] = list(GRADES_PROGRESSION.keys())
 
 # Grade -> (Nom complet affiché dans les annonces, nom exact de l'émoji sur le serveur)
 GRADES_META: dict[str, tuple[str, str | None]] = {
-    "EVAT": ("Engagé Volontaire", None),
+    "EVAT": ("Engagé Volontaire", "DMFI_Formation"),
     "SDT": ("Soldat", "soldat"),
     "1CL": ("Soldat 1ère Classe", "Soldat_1er_Classe"),
     "CPL": ("Caporal", "Caporal"),
     "CCH": ("Caporal Chef", "CaporalChef"),
-    "CC1": ("Caporal Chef de Première Classe", "CaporalChef_1er_Classe"),
+    "CC1": ("Caporal Chef 1ère Classe", "CaporalChef_1er_Classe"),
     "SGT": ("Sergent", "Sergent"),
     "SCH": ("Sergent Chef", "Sergent_Chef"),
     "ADJ": ("Adjudant", "Adjudant"),
@@ -70,7 +70,7 @@ GRADES_META: dict[str, tuple[str, str | None]] = {
     "CDT": ("Commandant", "Commandant"),
     "LCL": ("Lieutenant-Colonel", "Lieutenant_Colonel"),
     "COL": ("Colonel", "Colonel"),
-    "GDB": ("Général de Brigade", None),
+    "GDB": ("Général de Brigade", "General_de_Brigade"),
 }
 
 # Grade -> ID du rôle Discord
@@ -155,27 +155,27 @@ SPECIALITE_ROLES: dict[str, dict] = {
 # Colonnes R à AL ("Diplômes officiel de la DMFI")
 # >>> À COMPLÉTER : remplace None par l'ID du rôle Discord <<<
 BREVET_ROLES: dict[str, dict] = {
-    "FGI":     {"role_id": None, "col_index": 18},  # R
-    "SC1":     {"role_id": None, "col_index": 19},  # S
-    "SC2":     {"role_id": None, "col_index": 20},  # T
-    "CE":      {"role_id": None, "col_index": 21},  # U
-    "VG":      {"role_id": None, "col_index": 22},  # V
-    "MIT":     {"role_id": None, "col_index": 23},  # W
-    "SAPPEUR": {"role_id": None, "col_index": 24},  # X
-    "COM":     {"role_id": None, "col_index": 25},  # Y
-    "TAP":     {"role_id": None, "col_index": 26},  # Z
-    "VBL":     {"role_id": None, "col_index": 27},  # AA
-    "PL":      {"role_id": None, "col_index": 28},  # AB
-    "CDS":     {"role_id": None, "col_index": 29},  # AC
-    "MH-6":    {"role_id": None, "col_index": 30},  # AD
-    "UH-60V":  {"role_id": None, "col_index": 31},  # AE
-    "CH-53D":  {"role_id": None, "col_index": 32},  # AF
-    "NH-90":   {"role_id": None, "col_index": 33},  # AG
-    "TE":      {"role_id": None, "col_index": 34},  # AH
-    "TP":      {"role_id": None, "col_index": 35},  # AI
-    "SPTR":    {"role_id": None, "col_index": 36},  # AJ
-    "BACGN":   {"role_id": None, "col_index": 37},  # AK
-    "BACPN":   {"role_id": None, "col_index": 38},  # AL
+    "FGI":     {"role_id": 1507883337295986781, "col_index": 18},  # R
+    "SC1":     {"role_id": 1507883337933393941, "col_index": 19},  # S
+    "SC2":     {"role_id": 1507883338529243156, "col_index": 20},  # T
+    "CE":      {"role_id": 1507885184366678147, "col_index": 21},  # U
+    "VG":      {"role_id": 1561328412323356792, "col_index": 22},  # V
+    "MIT":     {"role_id": 1507883248804429964, "col_index": 23},  # W
+    "SAPPEUR": {"role_id": 1507884691943067849, "col_index": 24},  # X
+    "COM":     {"role_id": 1507883772937375784, "col_index": 25},  # Y
+    "TAP":     {"role_id": 1509163339366924409, "col_index": 26},  # Z
+    "VBL":     {"role_id": 1507884169055699034, "col_index": 27},  # AA
+    "PL":      {"role_id": 1507883775101632603, "col_index": 28},  # AB
+    "CDS":     {"role_id": 1524020504904601680, "col_index": 29},  # AC
+    "MH-6":    {"role_id": 1524020095414833172, "col_index": 30},  # AD
+    "UH-60V":  {"role_id": 1524019948240896100, "col_index": 31},  # AE
+    "CH-53D":  {"role_id": 1524019788119146607, "col_index": 32},  # AF
+    "NH-90":   {"role_id": 1524019293220769946, "col_index": 33},  # AG
+    "TE":      {"role_id": 1526971675982168074, "col_index": 34},  # AH
+    "TP":      {"role_id": 1526971791904608396, "col_index": 35},  # AI
+    "SPTR":    {"role_id": 1526971929591025764, "col_index": 36},  # AJ
+    "BACGN":   {"role_id": 1560982272927076463, "col_index": 37},  # AK
+    "BACPN":   {"role_id": 1560643128921301032, "col_index": 38},  # AL
 }
 
 # Diplômes qui ne se donnent PAS via /brevet (le FGI passe par /fgi, qui promeut aussi SDT)
