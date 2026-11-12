@@ -15,10 +15,10 @@ from __future__ import annotations
 # 1. PERMISSIONS
 # =====================================================================
 
-ADMIN_MASTER_ID = 602585381120114698
+ADMIN_MASTER_ID = 1350570903917826059
 
 # Rôle Formateur : autorisé sur /fgi et /brevet en plus des administrateurs
-ROLE_FORMATEUR_ID = 1507793936905928725
+ROLE_FORMATEUR_ID = 1507793936905928725, 1508576880201175061
 
 # =====================================================================
 # 2. GRADES
