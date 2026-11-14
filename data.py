@@ -120,6 +120,21 @@ GRADE_DATA_INFO: dict[str, tuple[int, str, str]] = {
     "EVAT": (19, "Militaire du Rang", "FMI"),
 }
 
+# Groupe de grade (colonne B de l'onglet "DATA") -> ID du rôle Discord
+# Le groupe suit le grade tout seul (cogs/roles.py) : à chaque changement de rôle de grade,
+# le bot retire l'ancien rôle de groupe et donne le nouveau (CC1 -> SGT : HDR retiré, SO ajouté).
+# >>> À COMPLÉTER : remplace None par l'ID du rôle Discord <<<
+GROUPE_ROLES: dict[str, int | None] = {
+    "Militaire du Rang": None,    # HDR  : EVAT, SDT, 1CL, CPL, CCH, CC1
+    "Sous-Officier": None,        # SO   : SGT, SCH, ADJ, ADC, MAJ
+    "Officier Subalterne": None,  # OSUB : ASP, SLT, LTN
+    "Officier Supérieur": None,   # OSUP : CNE, CDT, LCL, COL
+    "Officier Général": None,     # OGEN : GDB
+}
+
+# Mets False pour couper la mise à jour automatique (la commande /sync_groupes reste utilisable).
+GROUPES_AUTO = True
+
 # =====================================================================
 # 3. RÔLES D'INTÉGRATION ET DE FGI
 # =====================================================================
@@ -212,7 +227,7 @@ COL_REGIMENT = 13    # M
 COL_DERNIERE = 38    # AL
 
 LIGNE_DEBUT_DONNEES = 3  # Lignes 1 et 2 = en-têtes
-LIGNE_FIN_DONNEES = 2000
+LIGNE_FIN_DONNEES = 9999
 
 # Quand un membre quitte le serveur (départ, kick ou ban), sa ligne du recensement
 # est supprimée automatiquement. Une sauvegarde est postée dans le salon défini par
@@ -221,7 +236,58 @@ SUPPRESSION_AUTO_DEPART = True
 
 
 # =====================================================================
-# 6. REQUÊTES
+# 6. RECOMMANDATIONS (cogs/recommandations.py)
+# =====================================================================
+
+# >>> À COMPLÉTER <<<
+# Forum où le bot publie les recommandations (un post par membre recommandé).
+# (peut aussi se régler dans le .env avec RECO_FORUM_CHANNEL_ID, qui est alors prioritaire)
+RECO_FORUM_ID: int | None = None
+
+# Salon PRIVÉ de l'état-major où le bot note qui a fait chaque recommandation (pour repérer
+# les abus). Laisse None pour que l'auteur ne soit enregistré nulle part.
+# (.env : RECO_LOG_CHANNEL_ID)
+RECO_LOG_STAFF_ID: int | None = None
+
+# True  = le post public affiche « Anonyme » à la place de l'auteur.
+# False = l'auteur est mentionné dans le post (pense alors à retirer « anonymement » du texte ci-dessous).
+RECO_ANONYME = True
+
+# Fichier local qui retient « membre -> son post » pour regrouper ses recommandations.
+# Aucun auteur n'y est écrit. Ne pas le supprimer, sinon de nouveaux posts seront créés.
+RECO_FICHIER = "storage/recommandations.json"
+
+# Panneau posté par /setup_recommandation (1er encadré)
+RECO_PANNEAU_FONCTIONNEMENT = (
+    "## ℹ️・Fonctionnement des recommandations\n\n"
+    ">>> Les recommandations seront étudiées **régulièrement** par l’encadrement afin d’identifier "
+    "les membres qui se démarquent par leur **comportement**, leur **implication** et leurs **compétences**.\n\n"
+    "Un membre recevant plusieurs recommandations sérieuses pourra se voir attribuer "
+    "**des points supplémentaires**, ou éventuellement être proposé à **une promotion** si "
+    "__son niveau, son attitude et les besoins du serveur le permettent__.\n\n"
+    "Les recommandations ne garantissent donc **pas automatiquement une récompense** ou une montée "
+    "en grade. Elles servent avant tout **d’indicateur** pour mieux repérer les "
+    "__membres méritants et valoriser ceux qui s’investissent réellement dans le D.M.F.I__.\n\n"
+    "_L’objectif est de renforcer la méritocratie au sein du serveur, en prenant davantage en compte "
+    "les efforts visibles, la progression, la discipline et la qualité du travail fourni par chacun._"
+)
+
+# Panneau (2e encadré). {forum} est remplacé par la mention du forum.
+RECO_PANNEAU_MODE_EMPLOI = (
+    "# <:DMFI_Membre1:1497987652409098261>  Comment recommander un membre ?\n\n"
+    "1. Clique sur **Faire une recommandation** ci-dessous.\n"
+    "2. Choisis le membre que tu recommandes.\n"
+    "3. Indique la **raison** et, si tu le souhaites, ton **avis / tes remarques**.\n\n"
+    "Ta recommandation est publiée **anonymement** dans {forum} : chaque membre recommandé y a "
+    "son propre post, où chacun peut donner son avis. Tu peux recommander autant de membres que "
+    "tu le souhaites, mais pas toi-même.\n\n"
+    "## <:DMFI_Rules:1495507431684309133>  Merci de fournir des recommandations claires et justifiées "
+    "afin de faciliter leur étude par l'état-major."
+)
+
+
+# =====================================================================
+# 7. REQUÊTES
 # =====================================================================
 
 def lettre_colonne(index: int) -> str:
@@ -260,6 +326,35 @@ def role_id_grade(grade: str) -> int | None:
 
 def tous_les_roles_grade() -> set[int]:
     return {rid for rid in GRADE_ROLES.values() if rid is not None}
+
+
+def groupe_grade(grade: str) -> str | None:
+    """Groupe d'un grade ("SGT" -> "Sous-Officier"), None si grade inconnu."""
+    info = GRADE_DATA_INFO.get(grade)
+    return info[1] if info else None
+
+
+def tous_les_roles_groupe() -> set[int]:
+    return {rid for rid in GROUPE_ROLES.values() if rid is not None}
+
+
+def grade_le_plus_haut(role_ids: set[int]) -> str | None:
+    """Grade le plus élevé parmi les rôles d'un membre, None s'il n'a aucun rôle de grade."""
+    grades = [code for code, rid in GRADE_ROLES.items() if rid is not None and rid in role_ids]
+    return max(grades, key=rang_grade) if grades else None
+
+
+def correction_groupe(role_ids: set[int]) -> tuple[int | None, set[int]]:
+    """
+    Compare les rôles d'un membre au groupe que son grade lui donne.
+    Renvoie (rôle de groupe à ajouter ou None, rôles de groupe à retirer).
+    Un membre sans grade ne garde aucun rôle de groupe.
+    """
+    grade = grade_le_plus_haut(role_ids)
+    cible = GROUPE_ROLES.get(groupe_grade(grade)) if grade else None
+    a_retirer = {rid for rid in tous_les_roles_groupe() if rid in role_ids and rid != cible}
+    a_ajouter = cible if cible is not None and cible not in role_ids else None
+    return a_ajouter, a_retirer
 
 
 def tous_les_diplomes(inclure_hors_commande: bool = True) -> dict[str, dict]:
