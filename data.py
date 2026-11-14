@@ -125,11 +125,11 @@ GRADE_DATA_INFO: dict[str, tuple[int, str, str]] = {
 # le bot retire l'ancien rôle de groupe et donne le nouveau (CC1 -> SGT : HDR retiré, SO ajouté).
 # >>> À COMPLÉTER : remplace None par l'ID du rôle Discord <<<
 GROUPE_ROLES: dict[str, int | None] = {
-    "Militaire du Rang": None,    # HDR  : EVAT, SDT, 1CL, CPL, CCH, CC1
-    "Sous-Officier": None,        # SO   : SGT, SCH, ADJ, ADC, MAJ
-    "Officier Subalterne": None,  # OSUB : ASP, SLT, LTN
-    "Officier Supérieur": None,   # OSUP : CNE, CDT, LCL, COL
-    "Officier Général": None,     # OGEN : GDB
+    "Militaire du Rang": 1507794276820717608,    # HDR  : EVAT, SDT, 1CL, CPL, CCH, CC1
+    "Sous-Officier": 1507794369799917588,        # SO   : SGT, SCH, ADJ, ADC, MAJ
+    "Officier Subalterne": 1507794476813385738,  # OSUB : ASP, SLT, LTN
+    "Officier Supérieur": 1507794551505551560,   # OSUP : CNE, CDT, LCL, COL
+    "Officier Général": 1528075661988597810,     # OGEN : GDB
 }
 
 # Mets False pour couper la mise à jour automatique (la commande /sync_groupes reste utilisable).
@@ -242,7 +242,7 @@ SUPPRESSION_AUTO_DEPART = True
 # >>> À COMPLÉTER <<<
 # Forum où le bot publie les recommandations (un post par membre recommandé).
 # (peut aussi se régler dans le .env avec RECO_FORUM_CHANNEL_ID, qui est alors prioritaire)
-RECO_FORUM_ID: int | None = None
+RECO_FORUM_ID: int | None = 1571238284003385505
 
 # Salon PRIVÉ de l'état-major où le bot note qui a fait chaque recommandation (pour repérer
 # les abus). Laisse None pour que l'auteur ne soit enregistré nulle part.
