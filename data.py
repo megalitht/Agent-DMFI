@@ -17,8 +17,9 @@ from __future__ import annotations
 
 ADMIN_MASTER_ID = 1350570903917826059
 
-# Rôle Formateur : autorisé sur /fgi et /brevet en plus des administrateurs
-ROLE_FORMATEUR_ID = 1507793936905928725, 1508576880201175061
+# Rôles Formateur : autorisés sur /fgi et /brevet en plus des administrateurs
+# (ajoute un ID dans les accolades pour un nouveau rôle formateur)
+ROLE_FORMATEUR_IDS: set[int] = {1507793936905928725, 1508576880201175061}
 
 # =====================================================================
 # 2. GRADES
@@ -212,6 +213,11 @@ COL_DERNIERE = 38    # AL
 
 LIGNE_DEBUT_DONNEES = 3  # Lignes 1 et 2 = en-têtes
 LIGNE_FIN_DONNEES = 2000
+
+# Quand un membre quitte le serveur (départ, kick ou ban), sa ligne du recensement
+# est supprimée automatiquement. Une sauvegarde est postée dans le salon défini par
+# LOG_RECENSEMENT_CHANNEL_ID dans le .env. Mets False pour désactiver.
+SUPPRESSION_AUTO_DEPART = True
 
 
 # =====================================================================

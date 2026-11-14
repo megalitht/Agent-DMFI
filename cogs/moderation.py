@@ -7,7 +7,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import gspread
-from utils import admin_only, is_user_admin, get_admin_error_embed, get_recensement_worksheet
+from utils import (
+    admin_only, is_user_admin, get_admin_error_embed, get_recensement_worksheet,
+    version_recensement, MESSAGE_LIGNES_DECALEES,
+)
 from data import (
     GRADES_PROGRESSION, SPECIALITE_ROLES, SPREADSHEET_ID_DEFAUT,
     INTEGRATION_ROLE_ADD_ID as ROLE_ADD_ID,
@@ -160,6 +163,7 @@ class DuplicateResolutionView(discord.ui.View):
         self.pseudo_roblox = pseudo_roblox
         self.nom_usage = nom_usage
         self.duplicate_row = duplicate_row
+        self.version_sheet = version_recensement()  # Voir utils.signaler_suppression_lignes
 
     @discord.ui.button(
         label="Écraser l'ancien (Repartir à zéro)",
@@ -167,6 +171,9 @@ class DuplicateResolutionView(discord.ui.View):
         emoji="🔄"
     )
     async def overwrite_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if version_recensement() != self.version_sheet:
+            await interaction.response.send_message(MESSAGE_LIGNES_DECALEES, ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True)
         try:
             _, _, row_num = await asyncio.to_thread(

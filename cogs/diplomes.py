@@ -11,6 +11,7 @@ import gspread
 from utils import (
     is_user_admin, is_formateur_or_admin, get_admin_error_embed,
     get_recensement_worksheet, find_player, split_pseudos,
+    version_recensement, MESSAGE_LIGNES_DECALEES,
 )
 from data import (
     COL_DERNIERE, LIGNE_DEBUT_DONNEES, LIGNE_FIN_DONNEES, SPREADSHEET_ID_DEFAUT,
@@ -75,6 +76,7 @@ class DiplomeConfirmView(discord.ui.View):
         notes: str = "",
     ):
         super().__init__(timeout=900)
+        self.version_sheet = version_recensement()  # Voir utils.signaler_suppression_lignes
         self.cog = cog
         self.author = author
         self.diplome = diplome      # {"code", "type", "role_id", "col_index"}
@@ -201,6 +203,9 @@ class DiplomeConfirmView(discord.ui.View):
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.to_update:
             await interaction.response.send_message("⚠️ Aucun membre à mettre à jour dans la liste actuelle.", ephemeral=True)
+            return
+        if version_recensement() != self.version_sheet:
+            await interaction.response.send_message(MESSAGE_LIGNES_DECALEES, ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)

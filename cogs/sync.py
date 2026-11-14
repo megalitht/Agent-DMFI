@@ -11,11 +11,14 @@ from discord import app_commands
 from discord.ext import commands
 import gspread
 
-from utils import is_user_admin, get_admin_error_embed, get_recensement_worksheet, rename_with_grade
+from utils import (
+    is_user_admin, get_admin_error_embed, get_recensement_worksheet, rename_with_grade,
+    signaler_suppression_lignes,
+)
 from data import (
     GRADE_ROLES, SPECIALITE_ROLES, BREVET_ROLES, REGIMENT_ROLES,
-    COL_DISCORD_ID, COL_ROBLOX, COL_NOM_USAGE, COL_GRADE, COL_REGIMENT, COL_DERNIERE,
-    LIGNE_DEBUT_DONNEES, LIGNE_FIN_DONNEES, SPREADSHEET_ID_DEFAUT,
+    COL_DISCORD_ID, COL_ROBLOX, COL_NOM_USAGE, COL_GRADE, COL_POINTS, COL_REGIMENT, COL_DERNIERE,
+    LIGNE_DEBUT_DONNEES, LIGNE_FIN_DONNEES, SPREADSHEET_ID_DEFAUT, SUPPRESSION_AUTO_DEPART,
     cellule, lettre_colonne, rang_grade, tous_les_roles_grade,
 )
 
@@ -54,14 +57,19 @@ class RoleConflict:
     def __post_init__(self):
         self.original_row = self.original_row or self.row_number
 
-    def sheet_update(self) -> dict | None:
-        """Cellule à écrire si Discord fait foi. None = rien d'exploitable côté Discord."""
+    def sheet_update(self, vider_si_aucun: bool = False) -> dict | None:
+        """
+        Cellule à écrire si Discord fait foi. None = rien d'exploitable côté Discord.
+        vider_si_aucun : un régiment absent sur Discord met « N/A » dans le Sheet (clic manuel uniquement).
+        """
         if self.conflict_type == "ABSENT":
             return None
         if self.conflict_type in ("SPECIALITE", "BREVET"):
             valeur = self.discord_value == COCHE
         else:
             if self.discord_value == AUCUN:
+                if vider_si_aucun and self.conflict_type == "REGIMENT":
+                    return {"range": cellule(self.target_col, self.row_number), "values": [["N/A"]]}
                 return None
             # Plusieurs rôles sur Discord (ex: "CPL, 1CL") : le premier est le plus élevé
             valeur = self.discord_value.split(",")[0].strip()
@@ -203,6 +211,61 @@ def delete_sheet_row(worksheet: gspread.Worksheet, row_number: int, expected_id:
     return header, values
 
 
+def delete_rows_for_id(worksheet: gspread.Worksheet, discord_id: str) -> tuple[list[str], list[tuple[int, list[str]]]]:
+    """
+    Supprime toutes les lignes dont l'ID Discord (colonne A) vaut `discord_id`.
+    Renvoie (en-têtes, [(numéro de ligne, valeurs)]) pour la sauvegarde.
+    """
+    plage = f"A{LIGNE_DEBUT_DONNEES - 1}:{lettre_colonne(COL_DERNIERE)}{LIGNE_FIN_DONNEES}"
+    data = worksheet.get(plage)
+    header = list(data[0]) if data else []
+    if not header or header[0].strip().lower() != "id discord":
+        raise RuntimeError("l'onglet ouvert ne ressemble pas au recensement (A2 ≠ « ID Discord »)")
+
+    cibles = [
+        (row_number, list(row))
+        for row_number, row in enumerate(data[1:], start=LIGNE_DEBUT_DONNEES)
+        if row and row[0].strip() == discord_id
+    ]
+    if cibles:
+        # Une seule requête, du bas vers le haut pour que les numéros restent valides
+        worksheet.spreadsheet.batch_update({"requests": [
+            {"deleteDimension": {"range": {
+                "sheetId": worksheet.id, "dimension": "ROWS",
+                "startIndex": n - 1, "endIndex": n,
+            }}}
+            for n, _ in sorted(cibles, key=lambda x: x[0], reverse=True)
+        ]})
+    return header, cibles
+
+
+def backup_csv(header: list[str], lignes: list[tuple[int, list[str]]]) -> bytes:
+    buf = io.StringIO()
+    writer = csv.writer(buf, delimiter=";")
+    writer.writerow(["Ligne d'origine"] + header)
+    for ligne, values in lignes:
+        writer.writerow([ligne] + values)
+    return buf.getvalue().encode("utf-8-sig")
+
+
+# Fenêtres /sync ouvertes : elles doivent recaler leurs numéros de ligne à chaque suppression
+_VUES_SYNC_ACTIVES: set["ConflictResolutionView"] = set()
+
+
+async def signaler_lignes_supprimees(lignes: list[int], source: "ConflictResolutionView | None" = None):
+    """
+    À appeler après chaque suppression de ligne (bouton 🗑️ ou départ d'un membre).
+    Recale toutes les fenêtres /sync ouvertes et bloque les autres fenêtres de confirmation.
+    """
+    signaler_suppression_lignes()
+    for vue in list(_VUES_SYNC_ACTIVES):
+        affiche_avant = vue.current
+        vue._appliquer_suppressions(lignes)
+        # Si le conflit affiché a disparu (sa ligne vient d'être supprimée), on met l'embed à jour
+        if vue is not source and vue.current is not affiche_avant:
+            await vue._refresh()
+
+
 # =====================================================================
 # 2. INTERFACE INTERACTIVE (BOUTONS)
 # =====================================================================
@@ -231,7 +294,13 @@ class ConflictResolutionView(discord.ui.View):
         self.backup_sent = False
         self.errors: list[str] = []
         self.busy = False
+        self.pending_delete: RoleConflict | None = None  # Confirmation en 2 clics pour un membre présent
         self._update_buttons()
+        _VUES_SYNC_ACTIVES.add(self)
+
+    def stop(self):
+        _VUES_SYNC_ACTIVES.discard(self)
+        super().stop()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.author.id:
@@ -245,6 +314,7 @@ class ConflictResolutionView(discord.ui.View):
         return True
 
     async def on_timeout(self):
+        _VUES_SYNC_ACTIVES.discard(self)
         if self.message:
             try:
                 await self.message.edit(view=None)
@@ -264,7 +334,11 @@ class ConflictResolutionView(discord.ui.View):
         absent = c is not None and c.conflict_type == "ABSENT"
         self.validate_discord.disabled = absent
         self.validate_sheets.disabled = absent
-        self.delete_row.disabled = not absent
+        self.delete_row.disabled = c is None
+        if c is not None and c is self.pending_delete:
+            self.delete_row.label = "Confirmer : supprimer la ligne ?"
+        else:
+            self.delete_row.label = "Supprimer la ligne Sheet"
 
     # ---------- Embeds ----------
 
@@ -337,7 +411,7 @@ class ConflictResolutionView(discord.ui.View):
         if c.conflict_type == "ABSENT":
             embed.set_footer(text="🗑️ supprime la ligne du Google Sheet (sauvegarde CSV postée à la fin) • ⏭️ la conserve.")
         else:
-            embed.set_footer(text="Les boutons « Tout » traitent les conflits de rôles restants (les absents restent à traiter un par un).")
+            embed.set_footer(text="🗑️ supprime toute la ligne du joueur (2 clics s'il est encore sur le serveur) • Les boutons « Tout » ne suppriment jamais de ligne.")
         return embed
 
     async def _refresh(self, progress: str | None = None):
@@ -359,17 +433,13 @@ class ConflictResolutionView(discord.ui.View):
         if self.backup_sent or not self.deleted_rows or not self.message:
             return
         self.backup_sent = True
-        buf = io.StringIO()
-        writer = csv.writer(buf, delimiter=";")
-        writer.writerow(["Ligne d'origine"] + self.header)
-        for ligne, values in self.deleted_rows:
-            writer.writerow([ligne] + values)
+        contenu = backup_csv(self.header, self.deleted_rows)
         nom = f"recensement_supprimes_{datetime.now().strftime('%Y-%m-%d_%Hh%M')}.csv"
         try:
             await self.message.channel.send(
                 f"💾 Sauvegarde des **{len(self.deleted_rows)}** ligne(s) supprimée(s) du recensement "
                 f"(s'ouvre dans Excel / Google Sheets, à garder en cas d'erreur) :",
-                file=discord.File(io.BytesIO(buf.getvalue().encode("utf-8-sig")), filename=nom),
+                file=discord.File(io.BytesIO(contenu), filename=nom),
             )
         except discord.HTTPException as e:
             print(f"[SYNC] Sauvegarde CSV non envoyée : {e}")
@@ -434,11 +504,20 @@ class ConflictResolutionView(discord.ui.View):
             self.errors.append(f"• Écriture Google Sheets impossible : `{e}`")
             return 0
 
-    def _shift_rows_after(self, deleted_row: int):
-        """Une ligne supprimée fait remonter les suivantes : on recale les conflits restants."""
-        for c in self.conflicts:
-            if c.row_number > deleted_row:
-                c.row_number -= 1
+    def _appliquer_suppressions(self, lignes: list[int]):
+        """
+        Des lignes ont été supprimées du Sheet : les conflits restants sur ces lignes disparaissent
+        et ceux situés en dessous remontent d'un cran (sinon on écrirait sur le mauvais joueur).
+        """
+        for r in sorted(lignes, reverse=True):
+            restants = []
+            for c in self.conflicts[self.current_index:]:
+                if c.row_number == r:
+                    continue
+                if c.row_number > r:
+                    c.row_number -= 1
+                restants.append(c)
+            self.conflicts = self.conflicts[:self.current_index] + restants
 
     def _keep_only_absents_after_current(self):
         """Après un traitement en lot, il ne reste à passer en revue que les joueurs absents."""
@@ -452,14 +531,19 @@ class ConflictResolutionView(discord.ui.View):
     async def validate_discord(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         c = self.current
-        if c.sheet_update() is None:
+        update = c.sheet_update(vider_si_aucun=True)
+        if update is None:
             await interaction.followup.send(
-                "⚠️ Ce membre n'a aucun rôle correspondant sur Discord : je ne vide pas la cellule du Sheet. "
-                "Utilise 🟢 pour lui donner le rôle, ou ⏭️ pour ignorer.",
+                "⚠️ Ce membre n'a aucun grade sur Discord : je ne vide pas la case Grade du Sheet. "
+                "Utilise 🟢 pour lui donner le rôle, 🗑️ pour supprimer sa ligne, ou ⏭️ pour ignorer.",
                 ephemeral=True,
             )
             return
-        self.resolved_count += await self._apply_discord_to_sheet([c])
+        try:
+            await asyncio.to_thread(self.worksheet.batch_update, [update], value_input_option="USER_ENTERED")
+            self.resolved_count += 1
+        except Exception as e:
+            self.errors.append(f"• Écriture Google Sheets impossible : `{e}`")
         self.current_index += 1
         await self._refresh()
 
@@ -475,37 +559,50 @@ class ConflictResolutionView(discord.ui.View):
     async def delete_row(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         c = self.current
-        if c is None or c.conflict_type != "ABSENT":
-            await interaction.followup.send("⚠️ Ce bouton ne sert qu'aux joueurs introuvables sur le Discord.", ephemeral=True)
+        if c is None:
             return
 
-        # Garde-fous : liste des membres complète + joueur toujours absent
-        if not self.member_list_complete:
+        if c.conflict_type == "ABSENT":
+            # Garde-fous : liste des membres complète + joueur toujours absent
+            if not self.member_list_complete:
+                await interaction.followup.send(
+                    "❌ Le bot ne voit pas tous les membres du serveur (intent **Server Members** ?) : "
+                    "suppression bloquée pour ne pas effacer un joueur encore présent.",
+                    ephemeral=True,
+                )
+                return
+            if interaction.guild and interaction.guild.get_member(int(c.discord_id)) is not None:
+                await interaction.followup.send("ℹ️ Ce joueur est revenu sur le serveur : ligne conservée.", ephemeral=True)
+                self.current_index += 1
+                await self._refresh()
+                return
+        elif self.pending_delete is not c:
+            # Membre encore présent sur le serveur : on demande un 2e clic pour confirmer
+            self.pending_delete = c
+            await self._refresh()
             await interaction.followup.send(
-                "❌ Le bot ne voit pas tous les membres du serveur (intent **Server Members** ?) : "
-                "suppression bloquée pour ne pas effacer un joueur encore présent.",
+                f"⚠️ **{c.nom_usage}** est toujours sur le serveur. Reclique sur 🗑️ pour supprimer "
+                f"sa ligne {c.row_number} du recensement (grade, points et brevets compris).",
                 ephemeral=True,
             )
             return
-        if interaction.guild and interaction.guild.get_member(int(c.discord_id)) is not None:
-            await interaction.followup.send("ℹ️ Ce joueur est revenu sur le serveur : ligne conservée.", ephemeral=True)
-            self.current_index += 1
-            await self._refresh()
-            return
 
+        self.pending_delete = None
         self.busy = True
         try:
             header, values = await asyncio.to_thread(delete_sheet_row, self.worksheet, c.row_number, c.discord_id)
         except Exception as e:
             await interaction.followup.send(f"❌ Ligne non supprimée : `{e}`", ephemeral=True)
+            await self._refresh()
             return
         finally:
             self.busy = False
 
         self.header = header
         self.deleted_rows.append((c.original_row, values))
-        self._shift_rows_after(c.row_number)
-        self.current_index += 1
+        # Retire tous les conflits de cette ligne (y compris celui affiché) et recale les suivants,
+        # ici et dans les autres fenêtres /sync ouvertes
+        await signaler_lignes_supprimees([c.row_number], source=self)
         await self._refresh()
 
     @discord.ui.button(label="Ignorer", style=discord.ButtonStyle.secondary, emoji="⏭️", row=0)
@@ -569,6 +666,72 @@ class RecensementSyncCog(commands.Cog):
         ws = get_recensement_worksheet(self.gc, self.spreadsheet_id)
         plage = f"A{LIGNE_DEBUT_DONNEES}:{lettre_colonne(COL_DERNIERE)}{LIGNE_FIN_DONNEES}"
         return ws, ws.get(plage)
+
+    # ---------- Départ d'un membre : suppression automatique de sa ligne ----------
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member):
+        if member.bot or not SUPPRESSION_AUTO_DEPART:
+            return
+        try:
+            ws = await asyncio.to_thread(get_recensement_worksheet, self.gc, self.spreadsheet_id)
+            header, lignes = await asyncio.to_thread(delete_rows_for_id, ws, str(member.id))
+        except Exception as e:
+            print(f"[SYNC] Départ de {member} ({member.id}) : suppression impossible : {e}")
+            await self._log_depart(member, [], [], erreur=str(e))
+            return
+        if not lignes:
+            return  # Pas recensé : rien à faire
+
+        await signaler_lignes_supprimees([n for n, _ in lignes])
+        print(f"[SYNC] Départ de {member} ({member.id}) : ligne(s) {[n for n, _ in lignes]} supprimée(s).")
+        await self._log_depart(member, header, lignes)
+
+    async def _log_depart(self, member: discord.Member, header: list[str], lignes: list[tuple[int, list[str]]], erreur: str | None = None):
+        """Poste le récapitulatif + la sauvegarde CSV dans le salon de logs du recensement."""
+        salon_id = os.getenv("LOG_RECENSEMENT_CHANNEL_ID", "")
+        salon = self.bot.get_channel(int(salon_id)) if salon_id.isdigit() else None
+        if salon is None:
+            return
+
+        if erreur:
+            embed = discord.Embed(
+                title="⚠️ Départ du serveur — ligne NON supprimée",
+                description=f"**Membre :** {member.mention} (`{member}` — `{member.id}`)\n**Erreur :** `{erreur}`\n"
+                            f"Sa ligne est restée dans le recensement : `/sync` permettra de la supprimer.",
+                color=discord.Color.orange(), timestamp=datetime.now(),
+            )
+            await salon.send(embed=embed)
+            return
+
+        def val(row: list[str], col: int) -> str:
+            return row[col - 1].strip() if len(row) >= col and row[col - 1] else "—"
+
+        n, row = lignes[0]
+        diplomes = [
+            code for code, cfg in {**SPECIALITE_ROLES, **BREVET_ROLES}.items()
+            if val(row, cfg["col_index"]).upper() == "TRUE"
+        ]
+        embed = discord.Embed(
+            title="📤 Départ du serveur — ligne supprimée du recensement",
+            description=(
+                f"**Membre :** {member.mention} (`{member}` — `{member.id}`)\n"
+                f"**Nom d'usage :** `{val(row, COL_NOM_USAGE)}` • **Roblox :** `{val(row, COL_ROBLOX)}`\n"
+                f"**Grade :** `{val(row, COL_GRADE)}` • **Points :** `{val(row, COL_POINTS)}` • "
+                f"**Régiment :** `{val(row, COL_REGIMENT)}`\n"
+                f"**Spécialités / brevets :** {', '.join(f'`{d}`' for d in diplomes) or '*aucun*'}\n"
+                f"**Ligne(s) supprimée(s) :** {', '.join(f'`{num}`' for num, _ in lignes)}"
+            ),
+            color=discord.Color.dark_grey(), timestamp=datetime.now(),
+        )
+        embed.set_footer(text="Sauvegarde CSV jointe : de quoi recréer sa ligne s'il revient.")
+        try:
+            await salon.send(
+                embed=embed,
+                file=discord.File(io.BytesIO(backup_csv(header, lignes)), filename=f"depart_{member.id}.csv"),
+            )
+        except discord.HTTPException as e:
+            print(f"[SYNC] Log de départ non envoyé : {e}")
 
     @app_commands.command(name="sync", description="Détecte et corrige les écarts entre le Discord et le recensement.")
     @app_commands.default_permissions(administrator=True)

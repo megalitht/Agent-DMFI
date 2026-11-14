@@ -16,6 +16,7 @@ import easyocr
 from utils import (
     admin_only, formateur_only, is_user_admin, is_formateur_or_admin,
     get_admin_error_embed, get_recensement_worksheet, rename_with_grade,
+    version_recensement, MESSAGE_LIGNES_DECALEES,
 )
 from data import (
     GRADES_PROGRESSION, GRADES_META, GRADE_ROLES,
@@ -110,6 +111,7 @@ class OperationConfirmView(discord.ui.View):
         detected_raw: list[str]
     ):
         super().__init__(timeout=900)  # Expire après 15 minutes
+        self.version_sheet = version_recensement()  # Voir utils.signaler_suppression_lignes
         self.cog = cog
         self.author = author
         self.points_to_add = points_to_add
@@ -269,6 +271,10 @@ class OperationConfirmView(discord.ui.View):
             )
             return
 
+        if version_recensement() != self.version_sheet:
+            await interaction.response.send_message(MESSAGE_LIGNES_DECALEES, ephemeral=True)
+            return
+
         await interaction.response.defer(ephemeral=True)
 
         try:
@@ -377,6 +383,7 @@ class FGIConfirmView(discord.ui.View):
         notes: str = ""
     ):
         super().__init__(timeout=900)
+        self.version_sheet = version_recensement()  # Voir utils.signaler_suppression_lignes
         self.cog = cog
         self.author = author
         self.image_url = image_url
@@ -586,6 +593,10 @@ class FGIConfirmView(discord.ui.View):
                 "⚠️ Aucun EVAT ni instructeur valide dans la liste actuelle.",
                 ephemeral=True
             )
+            return
+
+        if version_recensement() != self.version_sheet:
+            await interaction.response.send_message(MESSAGE_LIGNES_DECALEES, ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)

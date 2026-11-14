@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands
 import gspread
 
-from data import ADMIN_MASTER_ID, ROLE_FORMATEUR_ID, WORKSHEET_NAMES
+from data import ADMIN_MASTER_ID, ROLE_FORMATEUR_IDS, WORKSHEET_NAMES
 
 
 # =====================================================================
@@ -24,9 +24,9 @@ def is_user_admin(user: discord.Member | discord.User) -> bool:
 
 
 def is_user_formateur(user: discord.Member | discord.User) -> bool:
-    """Vérifie si l'utilisateur possède le rôle Formateur."""
+    """Vérifie si l'utilisateur possède un des rôles Formateur."""
     if isinstance(user, discord.Member):
-        return any(r.id == ROLE_FORMATEUR_ID for r in user.roles)
+        return any(r.id in ROLE_FORMATEUR_IDS for r in user.roles)
     return False
 
 
@@ -79,6 +79,27 @@ formateur_only = _permission_decorator(is_formateur_or_admin)  # Formateurs + Ad
 # =====================================================================
 # GOOGLE SHEETS
 # =====================================================================
+
+# Numéro de "version" du recensement : augmente à chaque suppression de ligne.
+# Une suppression fait remonter les lignes suivantes, donc une fenêtre de confirmation
+# ouverte avant (/fgi, /operation, /brevet...) ne doit plus écrire avec ses anciens numéros.
+_version_recensement = 0
+
+
+def version_recensement() -> int:
+    return _version_recensement
+
+
+def signaler_suppression_lignes():
+    global _version_recensement
+    _version_recensement += 1
+
+
+MESSAGE_LIGNES_DECALEES = (
+    "⚠️ Des lignes du recensement ont été supprimées depuis l'ouverture de cette fenêtre "
+    "(un joueur a quitté le serveur ou a été retiré). Pour ne pas écrire sur la mauvaise ligne, "
+    "rien n'a été modifié : relance la commande."
+)
 
 def get_recensement_worksheet(gc: gspread.Client, spreadsheet_id: str) -> gspread.Worksheet:
     """Ouvre l'onglet de recensement (avec ou sans espace final dans son nom)."""
