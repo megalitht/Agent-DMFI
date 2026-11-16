@@ -319,9 +319,9 @@ INTERSERVEUR_LOG_ID: int | None = None
 # --- Fonctions (rôles du serveur principal) ---
 # >>> À COMPLÉTER : ID des rôles sur le serveur principal <<<
 FONCTION_ROLES: dict[str, int | None] = {
-    "CEMA": None,   # Chef d'État-Major de la DMFI
-    "CEMAA": None,  # Chef d'État-Major Adjoint de la DMFI
-    "DDEM": None,   # Directeur du Département de l'Enseignement Militaire
+    "CEMA": 1508216018986729653,   # Chef d'État-Major de la DMFI
+    "CEMAA": 1542986819585708053,  # Chef d'État-Major Adjoint de la DMFI
+    "DDEM": 1542987031620358235,   # Directeur du Département de l'Enseignement Militaire
 }
 
 
@@ -353,22 +353,22 @@ SERVEURS_LIES: dict[int, dict] = {
         "nom": "Spécialités & Régiments",
         "groupes_autorises": None,  # None = tous les grades peuvent entrer
         "liens": [
-            _lien("「DMFI」Soldat", None, "GROUPE:Militaire du Rang"),
-            _lien("「DMFI」Sous-Officier", None, "GROUPE:Sous-Officier"),
-            _lien("「DMFI」Officier", None,
+            _lien("「DMFI」Soldat", 1508451157071368303, "GROUPE:Militaire du Rang"),
+            _lien("「DMFI」Sous-Officier", 1508463945432699032, "GROUPE:Sous-Officier"),
+            _lien("「DMFI」Officier", 1508463983873757395,
                   "GROUPE:Officier Subalterne", "GROUPE:Officier Supérieur", "GROUPE:Officier Général"),
-            _lien("État-Major", None, "FONCTION:CEMA", "FONCTION:CEMAA"),
+            _lien("État-Major", 1508459765951365132, "FONCTION:CEMA", "FONCTION:CEMAA"),
             # Spécialités
-            _lien("MECA | Mécanicien - Logisticien", None, "SPECIALITE:MECA"),
-            _lien("R&P | Reconnaissance et précision", None, "SPECIALITE:R&P"),
-            _lien("MEDIC | Médecin Militaire", None, "SPECIALITE:MEDIC"),
-            _lien("PILOTE (rôle de base des pilotes)", None, "SPECIALITE:PILOTE"),
+            _lien("MECA | Mécanicien - Logisticien", 1508420569559859312, "SPECIALITE:MECA"),
+            _lien("R&P | Reconnaissance et précision", 1531989996058185828, "SPECIALITE:R&P"),
+            _lien("MEDIC | Médecin Militaire", 1508422608281014349, "SPECIALITE:MEDIC"),
+            _lien("PILOTE (rôle de base des pilotes)", 1571790456554000454, "SPECIALITE:PILOTE"),
             # Brevets
-            _lien("R&P | Tireur d'Élite", None, "BREVET:TE"),
-            _lien("R&P | Tireur de Précision", None, "BREVET:TP"),
-            _lien("R&P | Spotters", None, "BREVET:SPTR"),
-            _lien("4e RHFS | Pilote NH90TTH", None, "BREVET:NH-90"),
-            _lien("4e RHFS | Pilote CH-53D", None, "BREVET:CH-53D"),
+            _lien("R&P | Tireur d'Élite", 1508422229975634042, "BREVET:TE"),
+            _lien("R&P | Tireur de Précision", 1508422269213605969, "BREVET:TP"),
+            _lien("R&P | Spotters", 1508422318379241522, "BREVET:SPTR"),
+            _lien("4e RHFS | Pilote NH90TTH", 1508421198864973835, "BREVET:NH-90"),
+            _lien("4e RHFS | Pilote CH-53D", 1524348841594323024, "BREVET:CH-53D"),
             # Exemples à activer si tu le souhaites (retire le # et mets l'ID) :
             # _lien("4e RHFS | HR 530F", None, "BREVET:MH-6"),
             # _lien("1er RPIMA | Opérateur", None, "REGIMENT:1er RPIMa"),
@@ -379,26 +379,26 @@ SERVEURS_LIES: dict[int, dict] = {
         "nom": "1er RPIMA",
         "groupes_autorises": None,
         "liens": [
-            _lien("Membres DMFI", None, "MEMBRE"),
-            _lien("「GBR」Général de brigade", None, "GRADE:GDB"),
-            _lien("Pilote 4eRHFS", None, "REGIMENT:4e RHFS"),
+            _lien("Membres DMFI", 1535631712753688576, "MEMBRE"),
+            _lien("「GBR」Général de brigade", 1535322892844269568, "GRADE:GDB"),
+            _lien("Pilote 4eRHFS", 1543114835653304440, "REGIMENT:4e RHFS"),
             # Spécialisations
-            _lien("「R&P」Reconnaissance & Précision", None, "SPECIALITE:R&P"),
-            _lien("「MEDIC」Médecin militaire", None, "SPECIALITE:MEDIC"),
-            _lien("「MECA」Mécanicien - Logisticien", None, "SPECIALITE:MECA"),
-            _lien("「PILOTE」Pilote d'Hélicoptère", None, "SPECIALITE:PILOTE"),
+            _lien("「R&P」Reconnaissance & Précision", 1536046844667502632, "SPECIALITE:R&P"),
+            _lien("「MEDIC」Médecin militaire", 1536046847423156404, "SPECIALITE:MEDIC"),
+            _lien("「MECA」Mécanicien - Logisticien", 1536046848769396736, "SPECIALITE:MECA"),
+            _lien("「PILOTE」Pilote d'Hélicoptère", 1536046849432101005, "SPECIALITE:PILOTE"),
             # Diplômes
-            _lien("「SC1」Secourisme au Combat de Niveau 1", None, "BREVET:SC1"),
-            _lien("「SC2」Secourisme au Combat de Niveau 2", None, "BREVET:SC2"),
-            _lien("「MIT」Mitrailleur", None, "BREVET:MIT"),
-            _lien("「COM」Radio", None, "BREVET:COM"),
-            _lien("「TAP」Parachutiste", None, "BREVET:TAP"),
-            _lien("「SAPEUR」Sapeur du Génie", None, "BREVET:SAPPEUR"),
-            _lien("「VBL」Véhicule Blindé Léger", None, "BREVET:VBL"),
-            _lien("「PL」Poids Lourd", None, "BREVET:PL"),
-            _lien("「TE」Brevet Tireur d'Elite", None, "BREVET:TE"),
-            _lien("「TP」Brevet Tireur de Précision", None, "BREVET:TP"),
-            _lien("「SPTR」Brevet Spotter", None, "BREVET:SPTR"),
+            _lien("「SC1」Secourisme au Combat de Niveau 1", 1536046850467962890, "BREVET:SC1"),
+            _lien("「SC2」Secourisme au Combat de Niveau 2", 1536046850551976026, "BREVET:SC2"),
+            _lien("「MIT」Mitrailleur", 1536046851134849186, "BREVET:MIT"),
+            _lien("「COM」Radio", 1536046851860598804, "BREVET:COM"),
+            _lien("「TAP」Parachutiste", 1536047418087571569, "BREVET:TAP"),
+            _lien("「SAPEUR」Sapeur du Génie", 1536047419161059329, "BREVET:SAPPEUR"),
+            _lien("「VBL」Véhicule Blindé Léger", 1536047419450593331, "BREVET:VBL"),
+            _lien("「PL」Poids Lourd", 1536048007772905504, "BREVET:PL"),
+            _lien("「TE」Brevet Tireur d'Elite", 1536048012554408086, "BREVET:TE"),
+            _lien("「TP」Brevet Tireur de Précision", 1536048017101299732, "BREVET:TP"),
+            _lien("「SPTR」Brevet Spotter", 1536048020301414531, "BREVET:SPTR"),
         ],
     },
 
