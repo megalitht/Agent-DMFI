@@ -6,7 +6,7 @@ from discord.ext import commands
 
 from utils import is_user_admin, get_admin_error_embed
 from data import (
-    GROUPE_ROLES, GROUPES_AUTO,
+    GROUPE_ROLES, GROUPES_AUTO, SERVEUR_PRINCIPAL_ID,
     correction_groupe, grade_le_plus_haut, groupe_grade,
     tous_les_roles_grade, tous_les_roles_groupe,
 )
@@ -64,6 +64,8 @@ class GestionRoles(commands.Cog):
     @commands.Cog.listener()
     async def on_member_update(self, before: discord.Member, after: discord.Member):
         if not GROUPES_AUTO or after.bot or not tous_les_roles_groupe():
+            return
+        if after.guild.id != SERVEUR_PRINCIPAL_ID:
             return
 
         # On ne réagit qu'aux changements de GRADE : un rôle de groupe donné ou retiré

@@ -287,7 +287,181 @@ RECO_PANNEAU_MODE_EMPLOI = (
 
 
 # =====================================================================
-# 7. REQUÊTES
+# 7. INTER-SERVEUR (cogs/interserveur.py)
+#    Le serveur principal fait foi : les 3 autres serveurs suivent ses rôles.
+# =====================================================================
+
+SERVEUR_PRINCIPAL_ID = 1229869738352574484
+SERVEUR_SPECIALITES_ID = 1508409641154117732   # D.M.F.I. | Spécialités & Régiments
+SERVEUR_RPIMA_ID = 1535020258837008656         # 1er RPIMA DMFI
+SERVEUR_ENSEIGNEMENT_ID = 1544046845049970729  # Département de l'Enseignement Militaire DMFI
+
+# Interrupteurs (False = fonction coupée)
+INTERSERVEUR_ACTIF = True              # Copie des rôles du principal vers les autres serveurs
+FILTRAGE_ENTREE = True                 # Expulse à l'arrivée qui n'est pas recensé + présent sur le principal
+EXPULSION_DEPART_PRINCIPAL = True      # Quitter le principal = expulsé des 3 autres serveurs
+EXPULSION_SI_GROUPE_INTERDIT = True    # Ex : un sous-officier rétrogradé militaire du rang quitte l'enseignement
+
+# Commandes utilisables ailleurs que sur le serveur principal (toutes les autres y sont bloquées)
+COMMANDES_HORS_PRINCIPAL: set[str] = {"progression", "question"}
+
+# --- Qui n'est jamais expulsé (les modérateurs) ---
+# Rôles DU SERVEUR PRINCIPAL qui dispensent du recensement et de la règle de grade
+# >>> À COMPLÉTER : ID des rôles de modération du principal (ex : Perm lvl...) <<<
+ROLES_MODERATION_PRINCIPAL_IDS: set[int] = set()
+# ID de MEMBRES jamais expulsés, même absents du principal (les propriétaires des serveurs le sont déjà)
+MEMBRES_EXEMPTES_IDS: set[int] = {ADMIN_MASTER_ID}
+
+# Salon du principal où le bot note les expulsions et les erreurs (.env : INTERSERVEUR_LOG_CHANNEL_ID).
+# None = le salon de logs du recensement (LOG_RECENSEMENT_CHANNEL_ID) est utilisé.
+INTERSERVEUR_LOG_ID: int | None = None
+
+# --- Fonctions (rôles du serveur principal) ---
+# >>> À COMPLÉTER : ID des rôles sur le serveur principal <<<
+FONCTION_ROLES: dict[str, int | None] = {
+    "CEMA": None,   # Chef d'État-Major de la DMFI
+    "CEMAA": None,  # Chef d'État-Major Adjoint de la DMFI
+    "DDEM": None,   # Directeur du Département de l'Enseignement Militaire
+}
+
+
+def _lien(nom: str, role_id: int | None, *sources: str, depart: bool = False) -> dict:
+    """
+    Une liaison : « ce rôle du serveur secondaire est porté si AU MOINS UNE source est vraie ».
+    Sources possibles (lues sur les rôles du serveur principal) :
+      "MEMBRE"                      toute personne admise sur le serveur
+      "GRADE:SGT"                   grade exact (codes de GRADE_ROLES)
+      "GROUPE:Sous-Officier"        groupe de grade (noms de GROUPE_ROLES)
+      "SPECIALITE:MECA"             codes de SPECIALITE_ROLES
+      "BREVET:SC1"                  codes de BREVET_ROLES
+      "REGIMENT:4e RHFS"            noms de REGIMENT_ROLES
+      "FONCTION:CEMA"               noms de FONCTION_ROLES
+    depart=True : rôle « de départ », donné une seule fois quand la source apparaît (ou à l'arrivée
+    sur le serveur). Le bot ne le redonne pas si un instructeur l'a retiré à la main, mais le retire
+    quand la source disparaît.
+    """
+    return {"nom": nom, "role_id": role_id, "sources": set(sources), "depart": depart}
+
+
+# Pour chaque serveur secondaire : qui peut entrer, et quels rôles le bot y gère.
+# >>> À COMPLÉTER : remplace None par l'ID du rôle SUR LE SERVEUR SECONDAIRE <<<
+# Tant qu'un ID vaut None, la liaison est ignorée. Les rôles absents de ces listes
+# (postes des régiments, instructeurs, statuts SAS...) ne sont jamais touchés par le bot.
+SERVEURS_LIES: dict[int, dict] = {
+
+    SERVEUR_SPECIALITES_ID: {
+        "nom": "Spécialités & Régiments",
+        "groupes_autorises": None,  # None = tous les grades peuvent entrer
+        "liens": [
+            _lien("「DMFI」Soldat", None, "GROUPE:Militaire du Rang"),
+            _lien("「DMFI」Sous-Officier", None, "GROUPE:Sous-Officier"),
+            _lien("「DMFI」Officier", None,
+                  "GROUPE:Officier Subalterne", "GROUPE:Officier Supérieur", "GROUPE:Officier Général"),
+            _lien("État-Major", None, "FONCTION:CEMA", "FONCTION:CEMAA"),
+            # Spécialités
+            _lien("MECA | Mécanicien - Logisticien", None, "SPECIALITE:MECA"),
+            _lien("R&P | Reconnaissance et précision", None, "SPECIALITE:R&P"),
+            _lien("MEDIC | Médecin Militaire", None, "SPECIALITE:MEDIC"),
+            _lien("PILOTE (rôle de base des pilotes)", None, "SPECIALITE:PILOTE"),
+            # Brevets
+            _lien("R&P | Tireur d'Élite", None, "BREVET:TE"),
+            _lien("R&P | Tireur de Précision", None, "BREVET:TP"),
+            _lien("R&P | Spotters", None, "BREVET:SPTR"),
+            _lien("4e RHFS | Pilote NH90TTH", None, "BREVET:NH-90"),
+            _lien("4e RHFS | Pilote CH-53D", None, "BREVET:CH-53D"),
+            # Exemples à activer si tu le souhaites (retire le # et mets l'ID) :
+            # _lien("4e RHFS | HR 530F", None, "BREVET:MH-6"),
+            # _lien("1er RPIMA | Opérateur", None, "REGIMENT:1er RPIMa"),
+        ],
+    },
+
+    SERVEUR_RPIMA_ID: {
+        "nom": "1er RPIMA",
+        "groupes_autorises": None,
+        "liens": [
+            _lien("Membres DMFI", None, "MEMBRE"),
+            _lien("「GBR」Général de brigade", None, "GRADE:GDB"),
+            _lien("Pilote 4eRHFS", None, "REGIMENT:4e RHFS"),
+            # Spécialisations
+            _lien("「R&P」Reconnaissance & Précision", None, "SPECIALITE:R&P"),
+            _lien("「MEDIC」Médecin militaire", None, "SPECIALITE:MEDIC"),
+            _lien("「MECA」Mécanicien - Logisticien", None, "SPECIALITE:MECA"),
+            _lien("「PILOTE」Pilote d'Hélicoptère", None, "SPECIALITE:PILOTE"),
+            # Diplômes
+            _lien("「SC1」Secourisme au Combat de Niveau 1", None, "BREVET:SC1"),
+            _lien("「SC2」Secourisme au Combat de Niveau 2", None, "BREVET:SC2"),
+            _lien("「MIT」Mitrailleur", None, "BREVET:MIT"),
+            _lien("「COM」Radio", None, "BREVET:COM"),
+            _lien("「TAP」Parachutiste", None, "BREVET:TAP"),
+            _lien("「SAPEUR」Sapeur du Génie", None, "BREVET:SAPPEUR"),
+            _lien("「VBL」Véhicule Blindé Léger", None, "BREVET:VBL"),
+            _lien("「PL」Poids Lourd", None, "BREVET:PL"),
+            _lien("「TE」Brevet Tireur d'Elite", None, "BREVET:TE"),
+            _lien("「TP」Brevet Tireur de Précision", None, "BREVET:TP"),
+            _lien("「SPTR」Brevet Spotter", None, "BREVET:SPTR"),
+        ],
+    },
+
+    SERVEUR_ENSEIGNEMENT_ID: {
+        "nom": "Enseignement",
+        # Un militaire du rang ne peut pas entrer sur ce serveur
+        "groupes_autorises": {"Sous-Officier", "Officier Subalterne", "Officier Supérieur", "Officier Général"},
+        "liens": [
+            # École de Sous-Officiers
+            _lien("DESO | Département Ecole de Sous-Officier", None, "GROUPE:Sous-Officier"),
+            _lien("Test de compétences", None, "GRADE:SGT"),
+            _lien("Test Instructeur", None, "GRADE:ADJ"),
+            # École des Officiers
+            _lien("ASP | En cours de phase", None, "GRADE:ASP"),
+            _lien("Attente phase théorique", None, "GRADE:ASP", depart=True),
+            _lien("SLT | En cours de phase", None, "GRADE:SLT"),
+            _lien("DEO | Département Ecole des Officiers", None,
+                  "GRADE:LTN", "GRADE:CNE", "GRADE:CDT", "GRADE:LCL", "GRADE:COL", "GRADE:GDB"),
+            # Fonctions
+            _lien("CEMA | Chef d'Etat-Major de la DMFI", None, "FONCTION:CEMA", "FONCTION:CEMAA"),
+            _lien("DDEM | Directeur du Département de l'Enseignement Militaire", None, "FONCTION:DDEM"),
+        ],
+    },
+}
+
+# --- Message privé envoyé quand un membre est promu à l'un de ces grades ---
+# >>> À COMPLÉTER : lien d'invitation PERMANENT du serveur de l'enseignement <<<
+INVITATION_ENSEIGNEMENT = ""
+
+# {mention} est remplacé par la mention du membre. Le lien ci-dessus est ajouté à la fin.
+# >>> À ADAPTER : précise ce que le membre doit faire pour passer au grade suivant <<<
+MESSAGES_PROMOTION: dict[str, str] = {
+    "SGT": (
+        "🎖️ Bien joué {mention}, vous êtes maintenant **Sergent** : vous entrez dans le corps des "
+        "**sous-officiers** de la DMFI.\n\n"
+        "Pour passer **Sergent-Chef**, vous devez réussir le **test de compétences** de l'École de "
+        "Sous-Officiers. Tout se passe sur le serveur du Département de l'Enseignement Militaire."
+    ),
+    "ADJ": (
+        "🎖️ Bien joué {mention}, vous êtes maintenant **Adjudant**.\n\n"
+        "Pour passer **Adjudant-Chef**, vous devez réussir le **test instructeur** de l'École de "
+        "Sous-Officiers. Tout se passe sur le serveur du Département de l'Enseignement Militaire."
+    ),
+    "SLT": (
+        "🎖️ Bien joué {mention}, vous êtes maintenant **Sous-Lieutenant**.\n\n"
+        "Pour passer **Lieutenant**, vous devez terminer votre phase à l'**École des Officiers**. "
+        "Tout se passe sur le serveur du Département de l'Enseignement Militaire."
+    ),
+}
+
+# =====================================================================
+# 8. ANNONCES DE GRADE (promotions de 12h / 19h et /retrograder)
+# =====================================================================
+
+EMOJI_PROMOTION = "DMFI_Join"        # Émoji placé devant chaque promotion
+EMOJI_RETROGRADATION = "DMFI_Leave"  # Émoji placé devant chaque rétrogradation
+
+# Rétrogradations faites avec /retrograder, en attente de la prochaine annonce (12h ou 19h)
+RETRO_FICHIER = "storage/retrogradations.json"
+
+
+# =====================================================================
+# 9. REQUÊTES
 # =====================================================================
 
 def lettre_colonne(index: int) -> str:
@@ -380,3 +554,81 @@ def get_diplome(code: str) -> dict | None:
         if nom.upper() == cible:
             return {"code": nom, **cfg}
     return None
+
+# ---------- Inter-serveur ----------
+
+def sources_membre(role_ids: set[int]) -> set[str]:
+    """
+    Ce que les rôles d'un membre SUR LE SERVEUR PRINCIPAL disent de lui, sous forme de sources
+    ("GRADE:SGT", "GROUPE:Sous-Officier", "SPECIALITE:MECA", "BREVET:SC1", "REGIMENT:4e RHFS"...).
+    """
+    sources = {"MEMBRE"}
+    grade = grade_le_plus_haut(role_ids)
+    if grade:
+        sources.add(f"GRADE:{grade}")
+        sources.add(f"GROUPE:{groupe_grade(grade)}")
+    for prefixe, table in (("SPECIALITE", SPECIALITE_ROLES), ("BREVET", BREVET_ROLES)):
+        for code, cfg in table.items():
+            if cfg["role_id"] is not None and cfg["role_id"] in role_ids:
+                sources.add(f"{prefixe}:{code}")
+    for prefixe, table in (("REGIMENT", REGIMENT_ROLES), ("FONCTION", FONCTION_ROLES)):
+        for nom, rid in table.items():
+            if rid is not None and rid in role_ids:
+                sources.add(f"{prefixe}:{nom}")
+    return sources
+
+
+def sources_valides() -> set[str]:
+    """Toutes les sources qui existent (sert à repérer une faute de frappe dans SERVEURS_LIES)."""
+    return (
+        {"MEMBRE"}
+        | {f"GRADE:{g}" for g in GRADE_ROLES}
+        | {f"GROUPE:{g}" for g in GROUPE_ROLES}
+        | {f"SPECIALITE:{c}" for c in SPECIALITE_ROLES}
+        | {f"BREVET:{c}" for c in BREVET_ROLES}
+        | {f"REGIMENT:{r}" for r in REGIMENT_ROLES}
+        | {f"FONCTION:{f}" for f in FONCTION_ROLES}
+    )
+
+
+def groupe_autorise(serveur_id: int, grade: str | None) -> bool:
+    """Le grade donne-t-il le droit d'être sur ce serveur secondaire ? (sans grade = non, s'il y a une règle)"""
+    autorises = SERVEURS_LIES[serveur_id]["groupes_autorises"]
+    if autorises is None:
+        return True
+    return grade is not None and groupe_grade(grade) in autorises
+
+
+def correction_roles_lies(
+    serveur_id: int,
+    role_ids_locaux: set[int],
+    sources: set[str],
+    sources_avant: set[str] | None = None,
+) -> tuple[set[int], set[int]]:
+    """
+    Compare les rôles d'un membre sur un serveur secondaire à ce que le principal lui donne.
+    Renvoie (rôles à ajouter, rôles à retirer) sur ce serveur secondaire.
+    sources_avant : sources avant le changement ; None = le membre vient d'arriver sur le serveur.
+    Un rôle « de départ » n'est ajouté que si sa source vient d'apparaître (ou à l'arrivée).
+    """
+    voulus: set[int] = set()         # Rôles que le membre doit porter
+    voulus_depart: set[int] = set()  # Rôles de départ à donner maintenant
+    geres: set[int] = set()          # Tous les rôles que le bot gère sur ce serveur
+    tolere: set[int] = set()         # Rôles de départ qu'on laisse en place sans les redonner
+    for lien in SERVEURS_LIES[serveur_id]["liens"]:
+        rid = lien["role_id"]
+        if rid is None:
+            continue
+        geres.add(rid)
+        if not (lien["sources"] & sources):
+            continue
+        if not lien["depart"]:
+            voulus.add(rid)
+        else:
+            tolere.add(rid)
+            if sources_avant is None or not (lien["sources"] & sources_avant):
+                voulus_depart.add(rid)
+
+    a_ajouter = (voulus | voulus_depart) - role_ids_locaux
+    a_retirer = (geres & role_ids_locaux) - voulus - tolere
+    return a_ajouter, a_retirer

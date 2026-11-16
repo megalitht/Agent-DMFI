@@ -19,6 +19,7 @@ from data import (
     GRADE_ROLES, SPECIALITE_ROLES, BREVET_ROLES, REGIMENT_ROLES,
     COL_DISCORD_ID, COL_ROBLOX, COL_NOM_USAGE, COL_GRADE, COL_POINTS, COL_REGIMENT, COL_DERNIERE,
     LIGNE_DEBUT_DONNEES, LIGNE_FIN_DONNEES, SPREADSHEET_ID_DEFAUT, SUPPRESSION_AUTO_DEPART,
+    SERVEUR_PRINCIPAL_ID,
     cellule, lettre_colonne, rang_grade, tous_les_roles_grade,
 )
 
@@ -672,6 +673,9 @@ class RecensementSyncCog(commands.Cog):
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
         if member.bot or not SUPPRESSION_AUTO_DEPART:
+            return
+        # Le bot est sur plusieurs serveurs : seul un départ du serveur PRINCIPAL retire du recensement
+        if member.guild.id != SERVEUR_PRINCIPAL_ID:
             return
         try:
             ws = await asyncio.to_thread(get_recensement_worksheet, self.gc, self.spreadsheet_id)

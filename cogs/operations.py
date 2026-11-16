@@ -17,11 +17,13 @@ from utils import (
     admin_only, formateur_only, is_user_admin, is_formateur_or_admin,
     get_admin_error_embed, get_recensement_worksheet, rename_with_grade,
     version_recensement, MESSAGE_LIGNES_DECALEES,
+    lire_retrogradations, retirer_retrogradations,
 )
 from data import (
     GRADES_PROGRESSION, GRADES_META, GRADE_ROLES,
     FGI_ROLE_REMOVE_ID, FGI_ROLES_ADD_IDS, BREVET_ROLES,
     COL_GRADE, COL_POINTS, SPREADSHEET_ID_DEFAUT, cellule,
+    SERVEUR_PRINCIPAL_ID, EMOJI_PROMOTION, EMOJI_RETROGRADATION,
 )
 
 import warnings
@@ -1075,6 +1077,18 @@ class Operations(commands.Cog):
 
         return promoted_players, None
 
+    def _ligne_annonce(self, guild, prefixe: str, mention_str: str, old_grade: str, new_grade: str, arrow_emoji: str) -> str:
+        """« <émoji> @membre  Ancien grade <galon> ➜ <galon> Nouveau grade » (promotion ou rétrogradation)."""
+        old_label, old_emoji_name = GRADES_META.get(old_grade, (old_grade, None))
+        new_label, new_emoji_name = GRADES_META.get(new_grade, (new_grade, None))
+
+        old_emoji = self._get_emoji_str(guild, old_emoji_name)
+        new_emoji = self._get_emoji_str(guild, new_emoji_name)
+
+        part_old = f"**{old_label}** {old_emoji}".strip()
+        part_new = f"{new_emoji} **{new_label}**".strip()
+        return f"{prefixe} {mention_str}  {part_old} {arrow_emoji} {part_new}".strip()
+
     async def _run_promotions(self, target_discord_id: str | None = None) -> tuple[list[dict], str | None]:
         """Exécute la mise à jour Sheet, le renommage Discord et poste l'annonce dans le salon dédié."""
         promoted, error_msg = await asyncio.to_thread(
@@ -1082,7 +1096,11 @@ class Operations(commands.Cog):
             target_discord_id
         )
 
-        if not promoted:
+        # Les rétrogradations faites avec /retrograder sont déjà appliquées : elles attendent
+        # seulement d'être publiées dans l'annonce générale (pas dans celle d'un seul membre).
+        retrogrades = lire_retrogradations() if target_discord_id is None else []
+
+        if not promoted and not retrogrades:
             return [], error_msg
 
         channel = self.bot.get_channel(self.promo_channel_id)
@@ -1092,8 +1110,10 @@ class Operations(commands.Cog):
             except discord.HTTPException:
                 channel = None
 
-        guild = channel.guild if channel else (self.bot.guilds[0] if self.bot.guilds else None)
+        guild = channel.guild if channel else self.bot.get_guild(SERVEUR_PRINCIPAL_ID)
         arrow_emoji = self._get_emoji_str(guild, "DMFI_Fleche1") if guild else "➡️"
+        join_emoji = self._get_emoji_str(guild, EMOJI_PROMOTION) if guild else "🟢"
+        leave_emoji = self._get_emoji_str(guild, EMOJI_RETROGRADATION) if guild else "🔴"
 
         lignes_annonce = []
         for p in promoted:
@@ -1116,30 +1136,47 @@ class Operations(commands.Cog):
                 p["rename_status"] = "⚠️ Membre absent du serveur"
                 p["role_status"] = "⚠️ Rôle non modifié"
                 mention_str = f"<@{p['discord_id']}>" if p["discord_id"].isdigit() else f"**[{p['new_grade']}] {p['nom_usage']}**"
-                
+
             # 2. Construction de la ligne avec les émojis de galons et la flèche verte
-            old_label, old_emoji_name = GRADES_META.get(p["old_grade"], (p["old_grade"], None))
-            new_label, new_emoji_name = GRADES_META.get(p["new_grade"], (p["new_grade"], None))
+            lignes_annonce.append(
+                self._ligne_annonce(guild, join_emoji, mention_str, p["old_grade"], p["new_grade"], arrow_emoji)
+            )
 
-            old_emoji = self._get_emoji_str(guild, old_emoji_name)
-            new_emoji = self._get_emoji_str(guild, new_emoji_name)
-
-            part_old = f"**{old_label}** {old_emoji}".strip()
-            part_new = f"{new_emoji} **{new_label}**".strip()
-
-            lignes_annonce.append(f"{mention_str}  {part_old} {arrow_emoji} {part_new}")
+        # 2 bis. Rétrogradations en attente (rôle et pseudo déjà modifiés par /retrograder)
+        for r in retrogrades:
+            discord_id = str(r.get("discord_id", ""))
+            mention_str = f"<@{discord_id}>" if discord_id.isdigit() else f"**{r.get('nom_usage', '?')}**"
+            lignes_annonce.append(
+                self._ligne_annonce(guild, leave_emoji, mention_str, r["old_grade"], r["new_grade"], arrow_emoji)
+            )
 
         # 3. Envoi de l'annonce dans le salon des promotions
         if channel:
-            corps = "\n\n".join(lignes_annonce)
-            annonce_msg = (
-                f"# Suite à vos haptitude et à la décision de la haute hiérarchie.\n\n"
-                f"{corps}\n\n"
-                f"*Vos grades seront mise à jour automatiquement*\n"
-                f"*Pour quelquonque problème, merci de contacter le support via un ticket.*\n"
-                f"***Cordialement, l'ensemble de l'Etat Major et le Département de l'Enseignement Militaire de la DMFI.***"
+            entete = "# Suite à vos haptitude et à la décision de la haute hiérarchie.\n\n"
+            pied = (
+                "\n\n*Vos grades seront mise à jour automatiquement*\n"
+                "*Pour quelquonque problème, merci de contacter le support via un ticket.*\n"
+                "***Cordialement, l'ensemble de l'Etat Major et le Département de l'Enseignement Militaire de la DMFI.***"
             )
-            await channel.send(annonce_msg)
+            # Un message Discord est limité à 2000 caractères : une longue liste est répartie
+            # sur plusieurs messages (en-tête dans le premier, signature dans le dernier).
+            blocs: list[str] = []
+            bloc = ""
+            for ligne in lignes_annonce:
+                reserve = len(entete) if not blocs else 0
+                if bloc and reserve + len(bloc) + 2 + len(ligne) > 1900 - len(pied):
+                    blocs.append(bloc)
+                    bloc = ligne
+                else:
+                    bloc = f"{bloc}\n\n{ligne}" if bloc else ligne
+            blocs.append(bloc)
+
+            for i, bloc in enumerate(blocs):
+                texte = (entete if i == 0 else "") + bloc + (pied if i == len(blocs) - 1 else "")
+                await channel.send(texte)
+
+            if retrogrades:
+                retirer_retrogradations(retrogrades)
 
         return promoted, None
 

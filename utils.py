@@ -1,13 +1,15 @@
 # utils.py
 from __future__ import annotations
+import os
 import re
+import json
 import difflib
 import functools
 import discord
 from discord.ext import commands
 import gspread
 
-from data import ADMIN_MASTER_ID, ROLE_FORMATEUR_IDS, WORKSHEET_NAMES
+from data import ADMIN_MASTER_ID, ROLE_FORMATEUR_IDS, WORKSHEET_NAMES, RETRO_FICHIER
 
 
 # =====================================================================
@@ -165,3 +167,46 @@ async def rename_with_grade(membre: discord.Member, new_grade: str, fallback_usa
         return "⚠️ Renommage impossible (rôle supérieur au bot)"
     except discord.HTTPException as e:
         return f"⚠️ Erreur renommage ({e.status})"
+
+
+# =====================================================================
+# RÉTROGRADATIONS EN ATTENTE D'ANNONCE
+# =====================================================================
+# /retrograder applique la rétrogradation tout de suite, mais sa ligne n'est publiée que dans
+# l'annonce générale suivante (12h ou 19h), avec les promotions. En attendant, elle est gardée ici.
+
+def lire_retrogradations() -> list[dict]:
+    """Rétrogradations pas encore annoncées : [{"discord_id", "nom_usage", "old_grade", "new_grade"}]."""
+    try:
+        with open(RETRO_FICHIER, encoding="utf-8") as f:
+            contenu = json.load(f)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(contenu, list):
+        return []
+    return [r for r in contenu if isinstance(r, dict) and r.get("old_grade") and r.get("new_grade")]
+
+
+def _ecrire_retrogradations(liste: list[dict]):
+    dossier = os.path.dirname(RETRO_FICHIER)
+    if dossier:
+        os.makedirs(dossier, exist_ok=True)
+    temporaire = RETRO_FICHIER + ".tmp"
+    with open(temporaire, "w", encoding="utf-8") as f:
+        json.dump(liste, f, indent=2, ensure_ascii=False)
+    os.replace(temporaire, RETRO_FICHIER)
+
+
+def ajouter_retrogradation(discord_id: str, nom_usage: str, old_grade: str, new_grade: str):
+    liste = lire_retrogradations()
+    liste.append({"discord_id": discord_id, "nom_usage": nom_usage, "old_grade": old_grade, "new_grade": new_grade})
+    _ecrire_retrogradations(liste)
+
+
+def retirer_retrogradations(annoncees: list[dict]):
+    """Retire de la file les rétrogradations qui viennent d'être annoncées."""
+    restantes = lire_retrogradations()
+    for r in annoncees:
+        if r in restantes:
+            restantes.remove(r)
+    _ecrire_retrogradations(restantes)
