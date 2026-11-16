@@ -408,18 +408,18 @@ SERVEURS_LIES: dict[int, dict] = {
         "groupes_autorises": {"Sous-Officier", "Officier Subalterne", "Officier Supérieur", "Officier Général"},
         "liens": [
             # École de Sous-Officiers
-            _lien("DESO | Département Ecole de Sous-Officier", None, "GROUPE:Sous-Officier"),
-            _lien("Test de compétences", None, "GRADE:SGT"),
-            _lien("Test Instructeur", None, "GRADE:ADJ"),
+            _lien("DESO | Département Ecole de Sous-Officier", 1546245598687006750, "GROUPE:Sous-Officier"),
+            _lien("Test de compétences", 1546247187577573437, "GRADE:SGT"),
+            _lien("Test Instructeur", 1546246342660071574, "GRADE:ADJ"),
             # École des Officiers
-            _lien("ASP | En cours de phase", None, "GRADE:ASP"),
-            _lien("Attente phase théorique", None, "GRADE:ASP", depart=True),
-            _lien("SLT | En cours de phase", None, "GRADE:SLT"),
-            _lien("DEO | Département Ecole des Officiers", None,
+            _lien("ASP | En cours de phase", 1546246080319197294, "GRADE:ASP"),
+            _lien("Attente phase théorique", 1546246127781937202, "GRADE:ASP", depart=True),
+            _lien("SLT | En cours de phase", 1546245993211764828, "GRADE:SLT"),
+            _lien("DEO | Département Ecole des Officiers", 1546244736044503071,
                   "GRADE:LTN", "GRADE:CNE", "GRADE:CDT", "GRADE:LCL", "GRADE:COL", "GRADE:GDB"),
             # Fonctions
-            _lien("CEMA | Chef d'Etat-Major de la DMFI", None, "FONCTION:CEMA", "FONCTION:CEMAA"),
-            _lien("DDEM | Directeur du Département de l'Enseignement Militaire", None, "FONCTION:DDEM"),
+            _lien("CEMA | Chef d'Etat-Major de la DMFI", 1546260264310153388, "FONCTION:CEMA", "FONCTION:CEMAA"),
+            _lien("DDEM | Directeur du Département de l'Enseignement Militaire", 1546237516774903858, "FONCTION:DDEM"),
         ],
     },
 }
