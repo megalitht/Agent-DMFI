@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 import gspread
 
-from utils import is_user_admin, get_admin_error_embed, get_recensement_worksheet
+from utils import is_user_admin, get_admin_error_embed, get_recensement_worksheet, ids_effet_actif
 from data import (
     SERVEUR_PRINCIPAL_ID, SERVEURS_LIES, INTERSERVEUR_ACTIF, FILTRAGE_ENTREE,
     EXPULSION_DEPART_PRINCIPAL, EXPULSION_SI_GROUPE_INTERDIT,
@@ -195,6 +195,9 @@ class InterServeur(commands.Cog):
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         if member.bot or member.guild.id not in SERVEURS_LIES:
+            return
+        # Banni ou blacklisté : cogs/sanctions.py le rebannit, il ne reçoit ni MP ni rôle ici
+        if str(member.id) in ids_effet_actif("ban") | ids_effet_actif("blacklist"):
             return
         guild = member.guild
         principal_membre, certain = await self.membre_principal(member.id)

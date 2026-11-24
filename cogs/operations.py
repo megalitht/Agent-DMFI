@@ -17,7 +17,7 @@ from utils import (
     admin_only, formateur_only, is_user_admin, is_formateur_or_admin,
     get_admin_error_embed, get_recensement_worksheet, rename_with_grade,
     version_recensement, MESSAGE_LIGNES_DECALEES,
-    lire_retrogradations, retirer_retrogradations,
+    lire_retrogradations, retirer_retrogradations, ids_effet_actif,
 )
 from data import (
     GRADES_PROGRESSION, GRADES_META, GRADE_ROLES,
@@ -126,6 +126,7 @@ class OperationConfirmView(discord.ui.View):
         self.eligible_players: dict[int, dict] = {}
         self.special_grade_players: dict[int, dict] = {}
         self.unmatched_names: list[str] = []
+        self.rank_locks = ids_effet_actif("rank_lock")  # CDJM A.3 : pas de points pendant un rank lock
 
         for raw_name in detected_raw:
             self._match_and_classify(raw_name)
@@ -167,7 +168,9 @@ class OperationConfirmView(discord.ui.View):
             return
 
         row_num = entry["row"]
-        if entry["is_numeric_req"]:
+        if entry["discord_id"] in self.rank_locks:
+            self.special_grade_players[row_num] = {**entry, "requis_raw": "Rank lock actif"}
+        elif entry["is_numeric_req"]:
             self.eligible_players[row_num] = entry
         else:
             self.special_grade_players[row_num] = entry
@@ -398,6 +401,7 @@ class FGIConfirmView(discord.ui.View):
         self.instructors: dict[int, dict] = {}
         self.unmatched_names: list[str] = []
         self.unmatched_instructors: list[str] = []
+        self.rank_locks = ids_effet_actif("rank_lock")  # CDJM A.3 : ni promotion ni points
 
         for raw_inst in raw_instructors:
             self.add_instructor(raw_inst)
@@ -455,7 +459,9 @@ class FGIConfirmView(discord.ui.View):
         if row_num in self.instructors:
             return
 
-        if entry["grade"] == "EVAT":
+        if entry["grade"] == "EVAT" and entry["discord_id"] in self.rank_locks:
+            self.other_grade_players[row_num] = {**entry, "grade": "EVAT, rank lock actif"}
+        elif entry["grade"] == "EVAT":
             self.evat_players[row_num] = entry
         else:
             self.other_grade_players[row_num] = entry
@@ -475,6 +481,8 @@ class FGIConfirmView(discord.ui.View):
         row_num = entry["row"]
         self.other_grade_players.pop(row_num, None)
         self.evat_players.pop(row_num, None)
+        if entry["discord_id"] in self.rank_locks:
+            entry = {**entry, "is_numeric_req": False, "requis_raw": "Rank lock actif"}
         self.instructors[row_num] = entry
 
     def remove_entry(self, name: str):
@@ -559,7 +567,7 @@ class FGIConfirmView(discord.ui.View):
                 for p in self.other_grade_players.values()
             ]
             embed.add_field(
-                name=f"ℹ️ Non-EVAT ignorés ({len(self.other_grade_players)})",
+                name=f"ℹ️ Non promus : autre grade ou rank lock ({len(self.other_grade_players)})",
                 value="\n".join(lignes_autres)[:1020],
                 inline=False
             )
@@ -968,6 +976,7 @@ class Operations(commands.Cog):
         promoted_players = []
         batch_updates = []
         target_found = False
+        rank_locks = ids_effet_actif("rank_lock")
 
         for idx, row in enumerate(rows, start=2):
             def get_c(i: int) -> str:
@@ -984,8 +993,13 @@ class Operations(commands.Cog):
                 continue
 
             target_found = True
+            if discord_id in rank_locks:
+                if target_discord_id:
+                    return [], f"🔒 **{nom_usage}** est sous **rank lock** : aucune promotion possible pour le moment."
+                continue
+
             grade_actuel = get_c(6) or "EVAT"
-            
+
             if grade_actuel == "EVAT":
                 if target_discord_id:
                     return [], f"⚠️ **{nom_usage}** est EVAT. Sa promotion en SDT se fait uniquement via la commande `/fgi`."

@@ -12,7 +12,7 @@ from discord.ext import commands
 import gspread
 
 from utils import (
-    is_user_admin, get_admin_error_embed, get_recensement_worksheet, rename_with_grade,
+    is_user_admin, get_admin_error_embed, get_recensement_worksheet, rename_with_grade, ids_effet_actif,
     signaler_suppression_lignes,
 )
 from data import (
@@ -676,6 +676,9 @@ class RecensementSyncCog(commands.Cog):
             return
         # Le bot est sur plusieurs serveurs : seul un départ du serveur PRINCIPAL retire du recensement
         if member.guild.id != SERVEUR_PRINCIPAL_ID:
+            return
+        # Un ban d'un mois n'est pas un départ : le membre retrouve sa ligne à son retour
+        if str(member.id) in ids_effet_actif("ban"):
             return
         try:
             ws = await asyncio.to_thread(get_recensement_worksheet, self.gc, self.spreadsheet_id)

@@ -461,6 +461,170 @@ RETRO_FICHIER = "storage/retrogradations.json"
 
 
 # =====================================================================
+# 8bis. RAPPORTS DE SANCTION (cogs/sanctions.py)
+# =====================================================================
+
+# Salon où sont publiés les rapports (.env : SANCTION_CHANNEL_ID, prioritaire)
+# >>> À COMPLÉTER <<<
+SANCTION_SALON_ID: int | None = None
+
+# >>> À COMPLÉTER : ID des rôles permlvl1 à permlvl4 <<<
+SANCTION_PERM_ROLES: dict[int, int | None] = {
+    1: 1358539977335509193,  # permlvl1
+    2: 1354202789982507088,  # permlvl2
+    3: 1350570903917826059,  # permlvl3
+    4: 1552763863357984851,  # permlvl4
+}
+
+# Tier le plus élevé que chaque perm peut donner, d'après l'Article 7.3 du CDJM.
+# Si un membre a plusieurs perms, la plus haute compte.
+SANCTION_TIER_MAX_PAR_PERM: dict[int, int | None] = {
+    1: 2,   # Sous-Officiers (SGT et +)
+    2: 4,   # Officiers Subalternes (ASP et +)
+    3: 6,   # Officiers Subalternes, avec validation d'un Officier Supérieur à partir du Tier 5
+    4: 10,  # Officiers Supérieurs (CNE et +) / État-major
+}
+SANCTION_PERM_DECISION = 4  # Perm qui valide les Tiers 5-6 et clôture les Cours Martiales
+
+# Historique utilisé pour la récidive et le cumul (confidentiel, Art. 7.5 : ignoré par git)
+SANCTION_FICHIER = "storage/sanctions.json"
+
+# --- Règles de procédure du CDJM ---
+CDJM_TIER_RAPPORT_OBLIGATOIRE = 3  # Art. 7.2
+CDJM_DELAI_RAPPORT_HEURES = 72     # Art. 7.2
+CDJM_TIER_VALIDATION = 5           # Art. 7.3
+CDJM_TIER_COUR_MARTIALE = 6        # Art. 7.6 (« supérieure au Tier 5 »)
+CDJM_RECIDIVE_JOURS = 30           # Art. 8
+CDJM_REEXAMEN_TIER = 4             # Art. 8 : 3 sanctions à partir du Tier 4...
+CDJM_REEXAMEN_NOMBRE = 3
+CDJM_REEXAMEN_JOURS = 60           # ... sur 60 jours
+CDJM_TIER_REEXAMEN_SPE = 6         # Art. 4
+CDJM_TIER_SUSPENSION_FORMATION = 5  # Art. 5
+
+# Barème de l'Article 2.
+# Attention : l'Article 8 et l'Annexe A.3 inversent les Tiers 7 et 8. C'est l'Article 2 qui est suivi ici.
+SANCTION_TIERS: dict[int, str] = {
+    1: "Avertissement",
+    2: "JJs (Jumping Jack's)",
+    3: "TO 2h",
+    4: "TO 24h",
+    5: "TO 7 jours",
+    6: "Privilèges administratifs révoqués",
+    7: "Rank lock (1 mois)",
+    8: "Rétrogradation",
+    9: "Ban (1 mois)",
+    10: "Exil / Blacklist",
+}
+
+# Ce que le bot applique tout seul quand une sanction est validée (Discord + recensement)
+SANCTION_EFFETS: dict[int, dict] = {
+    3: {"type": "timeout", "heures": 2, "libelle": "TO de 2h sur tous les serveurs"},
+    4: {"type": "timeout", "heures": 24, "libelle": "TO de 24h sur tous les serveurs"},
+    5: {"type": "timeout", "heures": 168, "libelle": "TO de 7 jours sur tous les serveurs"},
+    7: {"type": "rank_lock", "jours": 30, "libelle": "Rank lock de 30 jours (promotions et points bloqués)"},
+    8: {"type": "retrogradation", "libelle": "Rétrogradation d'un grade"},
+    9: {"type": "ban", "jours": 30, "libelle": "Ban de 30 jours sur tous les serveurs"},
+    10: {"type": "blacklist", "libelle": "Blacklist : ban à vie sur tous les serveurs"},
+}
+SANCTION_EFFETS_MANUELS: dict[int, str] = {
+    2: "JJs à faire exécuter en RP",
+    6: "Retrait des privilèges à faire à la main",
+}
+
+CDJM_CATEGORIES: dict[str, str] = {
+    "3.1": "Art. 3.1 — Manquements disciplinaires mineurs",
+    "3.2": "Art. 3.2 — Insubordination et hiérarchie",
+    "3.3": "Art. 3.3 — Comportement toxique et communauté",
+    "3.4": "Art. 3.4 — Abus de pouvoir et de fonction",
+    "3.5": "Art. 3.5 — Désertion, trahison et fautes graves",
+    "3.6": "Art. 3.6 — Fraude et triche",
+    "3.7": "Art. 3.7 — Respect du RP et des civils",
+    "4": "Art. 4 — Spécialisations",
+    "5": "Art. 5 — Formations",
+    "6.1": "Art. 6.1 — 152e Régiment d'Infanterie",
+    "6.2": "Art. 6.2 — 1er RPIMA",
+    "6.3": "Art. 6.3 — 4e RHFS",
+}
+
+
+def _infraction(code: str, intitule: str, tiers: tuple, recidive: tuple | None = None, complement: str = "") -> dict:
+    """tiers / recidive = (min, max). max None = « Tier X minimum ». recidive None = Art. 8 (+1 Tier)."""
+    return {
+        "code": code,
+        "article": code.rsplit(".", 1)[0],
+        "intitule": intitule,
+        "tiers": tiers,
+        "recidive": recidive,
+        "complement": complement,
+    }
+
+
+# Grille des Articles 3 à 6 : (code, infraction, 1ère fois, récidive)
+CDJM_INFRACTIONS: list[dict] = [
+    _infraction("3.1.1", "Retard non justifié à un entraînement/opération", (1, 1), (2, 2)),
+    _infraction("3.1.2", "Tenue/équipement RP non conforme", (1, 1), (2, 2)),
+    _infraction("3.1.3", "Non-respect de la voie hiérarchique (canaux/tickets inappropriés, court-circuitage d'un échelon)", (1, 2), (3, 3)),
+    _infraction("3.1.4", "Absence non justifiée à une convocation alors que présence confirmée", (2, 2), (3, 4)),
+    _infraction("3.1.5", "Comportement non professionnel en opération (chahut, hors-sujet répété)", (2, 2), (3, 3)),
+
+    _infraction("3.2.1", "Refus d'obéir à un ordre légitime", (3, 3), (4, 5)),
+    _infraction("3.2.2", "Contestation publique et irrespectueuse d'un supérieur", (3, 3), (5, 5)),
+    _infraction("3.2.3", "Usurpation de fonction ou de grade", (4, 5), (6, 7)),
+    _infraction("3.2.4", "Insultes ou irrespect envers un supérieur hiérarchique", (4, 4), (6, 6)),
+    _infraction("3.2.5", "Usage de matériel non autorisé", (3, 3), (5, 5)),
+
+    _infraction("3.3.1", "Propos discriminatoires, racistes, homophobes, etc.", (6, 8), (10, 10)),
+    _infraction("3.3.2", "Harcèlement envers un ou plusieurs membres", (6, 8), (10, 10)),
+    _infraction("3.3.3", "Toxicité répétée (insultes, provocations, dénigrement)", (3, 5), (7, 8)),
+    _infraction("3.3.4", "Diffamation envers un membre ou la faction", (5, 6), (8, 8)),
+    _infraction("3.3.5", "Partage de gore/nsfw", (6, 8), (10, 10)),
+
+    _infraction("3.4.1", "Abus de pouvoir administratif (sanction injustifiée, favoritisme)", (6, 6), (7, 9)),
+    _infraction("3.4.2", "Utilisation des outils staff à des fins personnelles", (6, 7), (9, 9)),
+    _infraction("3.4.3", "Falsification de rapports ou de dossiers disciplinaires", (7, 8), (9, 10)),
+
+    _infraction("3.5.1", "Désertion en cours d'opération RP importante sans prévenir", (4, 5), (7, 7)),
+    _infraction("3.5.2", "Collaboration avec une faction ennemie / divulgation d'informations confidentielles", (8, 9), (10, 10)),
+    _infraction("3.5.3", "Sabotage volontaire d'une opération", (7, 8), (9, 10)),
+    _infraction("3.5.4", "Trahison caractérisée (actes portant gravement atteinte à la faction)", (10, 10), (10, 10)),
+
+    _infraction("3.6.1", "Triche RP (exploits, god-mode, non-respect des règles de combat)", (5, 6), (8, 9)),
+    _infraction("3.6.2", "Falsification de score, de présence ou de rapport d'activité", (4, 5), (7, 7)),
+    _infraction("3.6.3", "Multi-compte non déclaré", (6, 6), (9, 10)),
+
+    _infraction("3.7.1", "Tir/blessure RP sur un civil par erreur d'appréciation (manque de vigilance, confusion)", (1, 1), (2, 2)),
+    _infraction("3.7.2", "Non-respect des règles d'engagement envers un civil (absence de sommation, réaction disproportionnée)", (1, 2), (3, 3)),
+    _infraction("3.7.3", "Meurtre RP injustifié d'un civil (mise à mort sans scénario ni justification RP)", (2, 3), (4, 4)),
+    _infraction("3.7.4", "Refus d'assistance à un civil en détresse RP sans justification", (1, 1), (2, 2)),
+    _infraction("3.7.5", "Prise à partie ou séquestration RP d'un civil hors cadre autorisé par un responsable RP", (2, 3), (4, 5)),
+    _infraction("3.7.6", "Comportement malveillant répété envers les civils (harcèlement RP, \"camp\" volontaire)", (3, 3), (5, 5)),
+
+    _infraction("4.1", "Tireur longue distance : usage abusif de l'équipement de précision, tir ami répété par négligence", (3, None),
+                complement="Retrait temporaire de la spécialisation possible (Art. 4)"),
+    _infraction("4.2", "Mécanicien blindé : négligence répétée de la maintenance RP, refus d'assistance en opération", (2, 3),
+                complement="Avertissement spécifique de la filière blindée (Art. 4)"),
+    _infraction("4.3", "Medic : abandon de poste en opération, refus de soin RP sans justification", (3, 4)),
+
+    _infraction("5.1", "Communications radio : utilisation abusive, brouillage volontaire, divulgation de fréquences/codes", (4, None)),
+    _infraction("5.2", "VBL / Poids lourds : conduite dangereuse répétée en RP, usage non autorisé d'un véhicule", (2, 4)),
+    _infraction("5.3", "Sapeur / Minimi / Tireur embarqué : non-respect des consignes de sécurité, matériel mal utilisé", (2, 3)),
+
+    _infraction("6.1.1", "Abandon de position ou de ligne de front sans ordre", (2, 3), (4, 4)),
+    _infraction("6.1.2", "Tir ami répété par négligence en formation", (2, 3), (4, 4)),
+    _infraction("6.1.3", "Usage non autorisé ou négligent de l'armement d'appui collectif", (2, 2), (3, 4)),
+
+    _infraction("6.2.1", "Refus de saut sans motif RP ou médical valable", (2, 3), (4, 4)),
+    _infraction("6.2.2", "Manquement à la discrétion opérationnelle (divulgation d'un plan d'infiltration ou d'une mission spéciale)", (6, 7), (9, 9)),
+    _infraction("6.2.3", "Non-respect des procédures d'insertion/exfiltration en opération", (2, 3), (4, 4)),
+
+    _infraction("6.3.1", "Décollage ou vol sans autorisation / hors procédure", (2, 3), (4, 4)),
+    _infraction("6.3.2", "Utilisation non autorisée d'un appareil à des fins personnelles (\"joyride\")", (3, 3), (5, 5)),
+    _infraction("6.3.3", "Manœuvre dangereuse mettant en danger l'équipage ou les troupes au sol", (3, 4), (5, 6)),
+    _infraction("6.3.4", "Non-respect des zones d'exclusion aérienne ou des consignes de vol", (2, 2), (3, 3)),
+]
+
+
+# =====================================================================
 # 9. REQUÊTES
 # =====================================================================
 

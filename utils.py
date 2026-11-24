@@ -5,11 +5,12 @@ import re
 import json
 import difflib
 import functools
+from datetime import datetime, timezone
 import discord
 from discord.ext import commands
 import gspread
 
-from data import ADMIN_MASTER_ID, ROLE_FORMATEUR_IDS, WORKSHEET_NAMES, RETRO_FICHIER
+from data import ADMIN_MASTER_ID, ROLE_FORMATEUR_IDS, WORKSHEET_NAMES, RETRO_FICHIER, SANCTION_FICHIER
 
 
 # =====================================================================
@@ -210,3 +211,32 @@ def retirer_retrogradations(annoncees: list[dict]):
         if r in restantes:
             restantes.remove(r)
     _ecrire_retrogradations(restantes)
+
+
+# =====================================================================
+# EFFETS DES SANCTIONS (rank lock, ban, blacklist...)
+# =====================================================================
+
+def lire_sanctions() -> list[dict]:
+    try:
+        with open(SANCTION_FICHIER, encoding="utf-8") as f:
+            contenu = json.load(f)
+    except (OSError, ValueError):
+        return []
+    return contenu if isinstance(contenu, list) else []
+
+
+def effet_en_cours(effet: dict | None, maintenant: datetime | None = None) -> bool:
+    """Un effet sans date de fin (blacklist) reste en cours tant qu'il n'est pas levé."""
+    if not isinstance(effet, dict) or not effet.get("actif"):
+        return False
+    fin = effet.get("fin")
+    return fin is None or datetime.fromisoformat(fin) > (maintenant or datetime.now(timezone.utc))
+
+
+def ids_effet_actif(type_effet: str) -> set[str]:
+    """ID Discord des membres visés par un effet en cours ("rank_lock", "ban", "blacklist"...)."""
+    return {
+        str(f.get("utilisateur_id")) for f in lire_sanctions()
+        if isinstance(f.get("effet"), dict) and f["effet"].get("type") == type_effet and effet_en_cours(f["effet"])
+    }
